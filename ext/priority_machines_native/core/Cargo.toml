@@ -1,0 +1,13 @@
+[package]
+name = "priority-machines"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Allocation-free EDF, weighted round robin, and deficit round robin decisions"
+keywords = ["scheduling", "no-std", "priority", "round-robin"]
+categories = ["no-std", "algorithms"]
+readme = "README.md"
+
+[lints]
+workspace = true

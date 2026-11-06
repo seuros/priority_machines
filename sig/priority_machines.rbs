@@ -1,0 +1,18 @@
+module PriorityMachines
+  VERSION: String
+  def self.earliest_deadline: (Array[Integer | Float | nil] deadlines) -> Integer?
+
+  class WeightedRoundRobin
+    def self.new: (weights: Array[Integer]) -> instance
+    def select: (Array[bool] ready) -> Integer?
+    def deactivate: (Integer lane) -> bool
+    def lane_count: () -> Integer
+  end
+
+  class DeficitRoundRobin
+    def self.new: (quanta: Array[Integer]) -> instance
+    def select: (Array[Integer?] heads) -> Integer?
+    def deactivate: (Integer lane) -> bool
+    def lane_count: () -> Integer
+  end
+end

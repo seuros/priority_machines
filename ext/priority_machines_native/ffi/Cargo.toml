@@ -1,0 +1,21 @@
+[package]
+name = "priority_machines_native"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Thin native Ruby bindings for priority-machines"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+priority-machines.workspace = true
+magnus.workspace = true
+rb-sys.workspace = true
+
+[lints]
+workspace = true
