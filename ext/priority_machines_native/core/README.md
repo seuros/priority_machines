@@ -32,6 +32,22 @@ choose the lowest index; order the input by arrival if FIFO ties are required.
 Overdue deadlines remain eligible: cancellation and deadline enforcement belong
 to the caller. This policy makes no preemption or schedulability guarantee.
 
+## Round Robin
+
+```rust
+use priority_machines::RoundRobin;
+
+let mut scheduler = RoundRobin::new();
+assert_eq!(scheduler.select(&[false, true, true]), Some(1));
+assert_eq!(scheduler.select(&[false, true, true]), Some(2));
+assert_eq!(scheduler.select(&[true, true]), Some(0));
+assert_eq!(scheduler.select(&[]), None);
+```
+
+The unweighted case with no fixed lane count. The `ready` slice sets the lanes
+on every call and the cursor wraps, so lanes may appear and vanish between
+calls. One `usize` of state.
+
 ## Weighted Round Robin
 
 ```rust

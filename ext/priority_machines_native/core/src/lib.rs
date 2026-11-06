@@ -3,8 +3,10 @@
 
 mod deficit;
 mod edf;
+mod round_robin;
 mod weighted;
 
 pub use deficit::DeficitRoundRobin;
 pub use edf::earliest_deadline;
+pub use round_robin::RoundRobin;
 pub use weighted::WeightedRoundRobin;
