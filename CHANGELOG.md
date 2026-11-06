@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/seuros/priority_machines/compare/priority_machines/v0.1.3...priority_machines/v0.1.4) (2026-11-06)
+
+
+### Bug Fixes
+
+* keep test sources out of the packaged gem and crate ([37e58c0](https://github.com/seuros/priority_machines/commit/37e58c0575a088807db99d38ea820d87dde956b8))
+
 ## [0.1.3](https://github.com/seuros/priority_machines/compare/priority_machines/v0.1.2...priority_machines/v0.1.3) (2026-11-06)
 
 
