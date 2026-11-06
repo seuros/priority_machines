@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/seuros/priority_machines/compare/priority-machines-v0.3.1...priority-machines-v0.3.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* crates.io keywords and categories for the core ([1d389af](https://github.com/seuros/priority_machines/commit/1d389af51eacb70fe595028c381c68cb9d556f51))
+
 ## [0.3.1](https://github.com/seuros/priority_machines/compare/priority-machines-v0.3.0...priority-machines-v0.3.1) (2026-11-06)
 
 
