@@ -8,6 +8,6 @@ description = "Allocation-free EDF, round robin, weighted round robin, and defic
 keywords = ["scheduling", "no-std", "priority", "round-robin"]
 categories = ["no-std", "algorithms"]
 readme = "README.md"
-
+exclude = ["src/**/tests.rs", "tests/"]
 [lints]
 workspace = true
