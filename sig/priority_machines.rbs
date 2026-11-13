@@ -1,18 +1,52 @@
+# Native scheduling decisions only. The caller owns the queues.
+#
+# Weights, quanta and head costs are Integers in 1..2**32-1: TypeError for
+# anything else, RangeError outside the range, zero included. A lane index is
+# an Integer in 0..2**64-1. WeightedRoundRobin and DeficitRoundRobin hold zero
+# to sixteen lanes, and `select` takes exactly that many entries:
+# ArgumentError otherwise. A frozen scheduler raises FrozenError on `select`
+# and `deactivate`. Refusals are symbols, one per core `Refusal` variant, and
+# a refused call changes nothing.
 module PriorityMachines
   VERSION: String
-  def self.earliest_deadline: (Array[Integer | Float | nil] deadlines) -> Integer?
+
+  # What an honoured `deactivate` did. :idle is the honoured repeat: the lane
+  # held no credit and was not mid-visit (served or paid by the visit in
+  # progress), and nothing changed.
+  type deactivation = :deactivated | :idle
+
+  # Deadlines are Integer nanoseconds on one monotonic clock, 0..2**64-1, or
+  # nil for a lane with nothing: TypeError for a Float or any other
+  # non-Integer, RangeError outside the range. Never refuses: the lane with
+  # the earliest deadline (lowest index on a tie), or nil when none has one.
+  def self.earliest_deadline: (Array[Integer?] deadlines) -> Integer?
+
+  # Any number of lanes: each call's array sets them.
+  class RoundRobin
+    def self.new: () -> instance
+    # A drain: the next ready lane, or nil when none is ready (nothing moves).
+    def select: (Array[bool] ready) -> Integer?
+    # Where the next search starts.
+    def cursor: () -> Integer
+  end
 
   class WeightedRoundRobin
-    def self.new: (weights: Array[Integer]) -> instance
+    # Positional, like the core. One positive weight per lane.
+    def self.new: (Array[Integer] weights) -> instance
+    # A drain: the lane to serve, or nil when none is ready. nil still ends
+    # the visit in progress: that lane's burst starts over at full weight.
     def select: (Array[bool] ready) -> Integer?
-    def deactivate: (Integer lane) -> bool
-    def lane_count: () -> Integer
+    # Honoured: :deactivated, :idle. Refused: :unknown_lane.
+    def deactivate: (Integer lane) -> (deactivation | :unknown_lane)
   end
 
   class DeficitRoundRobin
-    def self.new: (quanta: Array[Integer]) -> instance
+    # Positional, like the core. One positive quantum per lane.
+    def self.new: (Array[Integer] quanta) -> instance
+    # A drain: the lane to serve, or nil when every lane is empty. nil still
+    # clears every lane's credit and ends the visit in progress.
     def select: (Array[Integer?] heads) -> Integer?
-    def deactivate: (Integer lane) -> bool
-    def lane_count: () -> Integer
+    # Honoured: :deactivated, :idle. Refused: :unknown_lane.
+    def deactivate: (Integer lane) -> (deactivation | :unknown_lane)
   end
 end

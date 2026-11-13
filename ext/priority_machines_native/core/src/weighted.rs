@@ -1,5 +1,7 @@
 use core::num::NonZeroU32;
 
+use crate::{Deactivation, Refusal};
+
 /// Burst weighted round robin over a fixed set of caller-owned lanes.
 ///
 /// Weights count dispatches, not work cost. Empty lanes forfeit their remaining
@@ -24,8 +26,12 @@ impl<const N: usize> WeightedRoundRobin<N> {
 
     /// Consume one turn from the next ready lane.
     ///
-    /// Returns `None` exactly when no lane is ready. Runs in O(N) worst-case
-    /// time; repeated dispatches from the current lane take O(1).
+    /// A drain: `None` is the honoured answer "no lane is ready", returned
+    /// exactly then. It still records what the round observed: the lane being
+    /// visited forfeits its unused turns, so its burst starts over at full
+    /// weight. The cursor stays where it was, and a second `None` in a row
+    /// changes nothing. Runs in O(N) worst-case time; repeated dispatches from
+    /// the current lane take O(1).
     pub fn select(&mut self, ready: &[bool; N]) -> Option<usize> {
         for _ in 0..N {
             let lane = self.cursor;
@@ -41,18 +47,37 @@ impl<const N: usize> WeightedRoundRobin<N> {
         None
     }
 
-    /// Relinquish unused turns if this lane is currently being visited.
+    /// Relinquish the unused turns of the burst this lane is in the middle of.
     ///
     /// Call when a queue drains or is removed, before reusing that lane.
-    /// Returns `false` for an out-of-range index, without changing state.
-    pub const fn deactivate(&mut self, lane: usize) -> bool {
+    ///
+    /// A lane is mid-burst when the cursor is on it and this visit has already
+    /// served it at least one turn. Only then does it hold anything: its
+    /// unused turns. [`Deactivation::Deactivated`]: the lane was mid-burst;
+    /// those turns are gone and the cursor moved on. [`Deactivation::Idle`]:
+    /// it was not (another lane is under the cursor, or this one is and its
+    /// burst is untouched), and nothing changed, so a lane that was never
+    /// served keeps its place. `Idle` is answered exactly when the call
+    /// changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`Refusal::UnknownLane`] for an index of `N` or more; nothing changes.
+    pub const fn deactivate(&mut self, lane: usize) -> Result<Deactivation, Refusal> {
         if lane >= N {
-            return false;
+            return Err(Refusal::UnknownLane);
         }
-        if lane == self.cursor {
-            self.advance();
+        if !self.mid_burst(lane) {
+            return Ok(Deactivation::Idle);
         }
-        true
+        self.advance();
+        Ok(Deactivation::Deactivated)
+    }
+
+    /// The cursor is on `lane` and this visit has served it a turn.
+    /// `remaining` stays within `1..=weight`: a spent burst moves the cursor.
+    const fn mid_burst(&self, lane: usize) -> bool {
+        lane == self.cursor && self.remaining < self.weights[lane].get()
     }
 
     const fn advance(&mut self) {

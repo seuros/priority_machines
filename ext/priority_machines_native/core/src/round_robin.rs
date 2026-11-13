@@ -17,7 +17,9 @@ impl RoundRobin {
 
     /// The next ready lane at or after the cursor; the cursor moves past it.
     ///
-    /// Returns `None` exactly when no lane is ready. O(N) worst case.
+    /// A drain: `None` is the honoured answer "no lane is ready", returned
+    /// exactly then (an empty slice included), and it changes nothing. O(N)
+    /// worst case.
     pub const fn select(&mut self, ready: &[bool]) -> Option<usize> {
         let lanes = ready.len();
         if lanes == 0 {

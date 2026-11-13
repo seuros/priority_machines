@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod contract;
+
 fn units(value: u32) -> NonZeroU32 {
     NonZeroU32::new(value).expect("test units are positive")
 }
@@ -43,12 +45,13 @@ fn deactivation_prevents_credit_leaking_into_a_refill() {
     let mut scheduler = DeficitRoundRobin::new([units(10), units(1)]);
     assert_eq!(scheduler.select(&[Some(units(2)); 2]), Some(0));
     assert_eq!(scheduler.deficits[0], 8);
-    assert!(scheduler.deactivate(0));
+    assert_eq!(scheduler.deactivate(0), Ok(Deactivation::Deactivated));
     assert_eq!(scheduler.deficits[0], 0);
     assert_eq!(scheduler.select(&[Some(units(2)), Some(units(1))]), Some(1));
 
     let before = scheduler.clone();
-    assert!(!scheduler.deactivate(2));
+    assert_eq!(scheduler.deactivate(2), Err(Refusal::UnknownLane));
+    assert_eq!(scheduler.deactivate(usize::MAX), Err(Refusal::UnknownLane));
     assert_eq!(scheduler, before);
 }
 
@@ -85,7 +88,7 @@ fn idle_and_zero_lane_schedulers_select_nothing() {
 
     let mut empty = DeficitRoundRobin::new([]);
     assert_eq!(empty.select(&[]), None);
-    assert!(!empty.deactivate(0));
+    assert_eq!(empty.deactivate(0), Err(Refusal::UnknownLane));
 }
 
 #[test]
@@ -98,6 +101,28 @@ fn shares_cost_rather_than_dispatch_counts() {
         spent[lane] += heads[lane].expect("selected lane is ready").get();
     }
     assert_eq!(spent, [600, 300]);
+}
+
+/// Textbook deactivation: drop the credit, and end the visit only if it has
+/// been paid; `Idle` when the lane had neither.
+fn reference_deactivate(
+    scheduler: &mut DeficitRoundRobin<2>,
+    lane: usize,
+) -> Result<Deactivation, Refusal> {
+    if lane >= 2 {
+        return Err(Refusal::UnknownLane);
+    }
+    let credit = core::mem::take(&mut scheduler.deficits[lane]);
+    let paid = lane == scheduler.cursor && !scheduler.needs_quantum;
+    if paid {
+        scheduler.cursor = (scheduler.cursor + 1) % 2;
+        scheduler.needs_quantum = true;
+    }
+    Ok(if credit == 0 && !paid {
+        Deactivation::Idle
+    } else {
+        Deactivation::Deactivated
+    })
 }
 
 /// Deliberately slow textbook visits, without arithmetic round skipping.
@@ -170,8 +195,10 @@ fn changing_head_costs_match_textbook_drr() {
             (step % 13 != 0).then(|| units(1 + (step * 3) % 19)),
         ];
         if step % 23 == 0 {
-            assert!(actual.deactivate(0));
-            assert!(reference.deactivate(0));
+            assert_eq!(
+                actual.deactivate(0),
+                reference_deactivate(&mut reference, 0)
+            );
         }
         assert_eq!(
             actual.select(&heads),
