@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/seuros/priority_machines/compare/priority-machines-v0.3.2...priority-machines-v0.4.0) (2026-11-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* converted to the fleet conventions. One exhaustive Refusal per crate, Result from every operation that can refuse, a refusal changes nothing, provable idempotent repeats are honoured, Ruby mirrors the core. No compatibility aliases. A lane that holds nothing is Idle for any lane count and the cursor does not move.
+
+### Features
+
+* deactivate answers Result&lt;Deactivation, Refusal&gt;, Idle exactly when nothing changes, Ruby RoundRobin and nanosecond deadlines ([0ef6aad](https://github.com/seuros/priority_machines/commit/0ef6aad0fadeb511b0de49e1ada2a2b964fca594))
+
 ## [0.3.2](https://github.com/seuros/priority_machines/compare/priority-machines-v0.3.1...priority-machines-v0.3.2) (2026-11-06)
 
 
