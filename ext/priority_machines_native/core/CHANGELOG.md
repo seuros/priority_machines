@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/seuros/priority_machines/compare/priority-machines-v0.4.0...priority-machines-v0.5.0) (2026-11-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* raise RangeError for a wrong-length select and name every argument
+
+### Features
+
+* raise RangeError for a wrong-length select and name every argument ([d99d027](https://github.com/seuros/priority_machines/commit/d99d0273074e3ddedc44e428408b9e523eb5cfa8))
+
 ## [0.4.0](https://github.com/seuros/priority_machines/compare/priority-machines-v0.3.2...priority-machines-v0.4.0) (2026-11-13)
 
 
