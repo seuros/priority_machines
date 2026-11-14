@@ -4,8 +4,9 @@
 # anything else, RangeError outside the range, zero included. A lane index is
 # an Integer in 0..2**64-1. WeightedRoundRobin and DeficitRoundRobin hold zero
 # to MAX_LANES lanes, and `select` takes exactly that many entries:
-# RangeError otherwise. Messages name the argument. A frozen scheduler raises
-# FrozenError on `select` and `deactivate`. Refusals are symbols, one per
+# RangeError otherwise. Every array argument is exactly an Array: a subclass
+# is TypeError. Messages name the argument. A frozen scheduler raises
+# FrozenError on `select` and `deactivate`, checked before the arguments. Refusals are symbols, one per
 # core `Refusal` variant, and a refused call changes nothing.
 module PriorityMachines
   VERSION: String

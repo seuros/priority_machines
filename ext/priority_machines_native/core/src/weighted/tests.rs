@@ -1,5 +1,6 @@
 use super::*;
-use crate::test_support::{Rng, Tally, nonzero as weight};
+use crate::test_support::{Tally, below, index, nonzero as weight};
+use matryona_machines::testing::{XorShift64, refuses, unchanged};
 
 /// Run `steps` against a fresh scheduler and answer its remaining burst.
 fn replay<const N: usize>(weights: [u32; N], steps: &[([bool; N], Option<usize>)]) -> u32 {
@@ -44,10 +45,10 @@ fn deactivation_relinquishes_a_partial_burst() {
     assert_eq!(scheduler.select(&[true; 2]), Some(0));
     assert_eq!(scheduler.deactivate(0), Ok(Deactivation::Deactivated));
     assert_eq!(scheduler.select(&[true; 2]), Some(1));
-    let before = scheduler.clone();
-    assert_eq!(scheduler.deactivate(2), Err(Refusal::UnknownLane));
-    assert_eq!(scheduler.deactivate(usize::MAX), Err(Refusal::UnknownLane));
-    assert_eq!(scheduler, before);
+    refuses(&mut scheduler, Refusal::UnknownLane, |s| s.deactivate(2));
+    refuses(&mut scheduler, Refusal::UnknownLane, |s| {
+        s.deactivate(usize::MAX)
+    });
 }
 
 #[test]
@@ -85,18 +86,21 @@ fn a_repeated_deactivation_is_honoured_and_changes_nothing() {
     let mut scheduler = WeightedRoundRobin::new([weight(3), weight(2)]);
     assert_eq!(scheduler.select(&[true; 2]), Some(0));
     assert_eq!(scheduler.deactivate(0), Ok(Deactivation::Deactivated));
-    let before = scheduler.clone();
-    assert_eq!(scheduler.deactivate(0), Ok(Deactivation::Idle));
-    assert_eq!(scheduler, before);
+    assert_eq!(
+        unchanged(&mut scheduler, |s| s.deactivate(0)),
+        Ok(Deactivation::Idle)
+    );
 
     // An only lane with an untouched burst holds nothing to give up.
     let mut single = WeightedRoundRobin::new([weight(2)]);
-    let before = single.clone();
-    assert_eq!(single.deactivate(0), Ok(Deactivation::Idle));
-    assert_eq!(single, before);
+    let fresh = single.clone();
+    assert_eq!(
+        unchanged(&mut single, |s| s.deactivate(0)),
+        Ok(Deactivation::Idle)
+    );
     assert_eq!(single.select(&[true]), Some(0));
     assert_eq!(single.deactivate(0), Ok(Deactivation::Deactivated));
-    assert_eq!(single, before);
+    assert_eq!(single, fresh);
 }
 
 #[test]
@@ -108,8 +112,7 @@ fn nothing_ready_forfeits_the_burst_and_keeps_the_cursor() {
     expected.remaining = 2;
     assert_eq!(scheduler.select(&[false; 2]), None);
     assert_eq!(scheduler, expected);
-    assert_eq!(scheduler.select(&[false; 2]), None);
-    assert_eq!(scheduler, expected);
+    assert_eq!(unchanged(&mut scheduler, |s| s.select(&[false; 2])), None);
 }
 
 #[test]
@@ -167,7 +170,7 @@ impl Model {
 
 #[test]
 fn randomized_trace_matches_a_reference_model() {
-    let mut rng = Rng(0x4215_4215_4215_4215);
+    let mut rng = XorShift64::new(0x4215_4215_4215_4215);
     let weights = [3, 1, 2];
     let mut scheduler = WeightedRoundRobin::new(weights.map(weight));
     let mut model = Model {
@@ -178,13 +181,13 @@ fn randomized_trace_matches_a_reference_model() {
     let mut tally = Tally::default();
     for _ in 0..20_000 {
         let before = scheduler.clone();
-        if rng.below(4) == 0 {
-            let lane = rng.index(5);
+        if below(&mut rng, 4) == 0 {
+            let lane = index(&mut rng, 5);
             let outcome = scheduler.deactivate(lane);
             assert_eq!(outcome, model.deactivate(lane));
             tally.record(outcome, &scheduler, &before);
         } else {
-            let bits = rng.below(8);
+            let bits = below(&mut rng, 8);
             let ready = core::array::from_fn(|lane| bits >> lane & 1 == 1);
             assert_eq!(scheduler.select(&ready), model.select(ready));
         }
@@ -197,10 +200,11 @@ fn randomized_trace_matches_a_reference_model() {
 #[test]
 fn deactivating_lanes_that_hold_nothing_never_moves_the_cursor() {
     let mut scheduler = WeightedRoundRobin::new([weight(3), weight(2)]);
-    let fresh = scheduler.clone();
     for lane in [0, 0, 1, 0, 1, 1] {
-        assert_eq!(scheduler.deactivate(lane), Ok(Deactivation::Idle));
-        assert_eq!(scheduler, fresh);
+        assert_eq!(
+            unchanged(&mut scheduler, |s| s.deactivate(lane)),
+            Ok(Deactivation::Idle)
+        );
     }
     // The lane under the cursor kept its place and its whole burst.
     let turns: [_; 3] = core::array::from_fn(|_| scheduler.select(&[true; 2]));

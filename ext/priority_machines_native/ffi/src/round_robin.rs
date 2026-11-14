@@ -2,10 +2,10 @@
 
 use std::cell::RefCell;
 
-use magnus::{Error, RArray, RModule, Ruby, function, method, prelude::*, typed_data::Obj};
+use magnus::{Error, RModule, Ruby, Value, function, method, prelude::*, typed_data::Obj};
 use priority_machines::RoundRobin;
 
-use crate::ready;
+use crate::{array, ready};
 
 #[magnus::wrap(class = "PriorityMachines::RoundRobin", free_immediately, size)]
 struct Wrapper(RefCell<RoundRobin>);
@@ -15,10 +15,10 @@ impl Wrapper {
         Self(RefCell::new(RoundRobin::new()))
     }
 
-    fn select(ruby: &Ruby, rb_self: Obj<Self>, flags: RArray) -> Result<Option<usize>, Error> {
+    fn select(ruby: &Ruby, rb_self: Obj<Self>, flags: Value) -> Result<Option<usize>, Error> {
         rb_self.check_frozen()?;
         // Convert the complete call before entering the core.
-        let flags = flags
+        let flags = array(ruby, flags, "ready")?
             .into_iter()
             .map(|value| ready(ruby, value))
             .collect::<Result<Vec<_>, _>>()?;

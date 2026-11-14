@@ -1,5 +1,6 @@
 use super::*;
-use crate::test_support::{Rng, Tally, nonzero as units};
+use crate::test_support::{Tally, below, index, nonzero as units};
+use matryona_machines::testing::{XorShift64, refuses, unchanged};
 
 mod contract;
 
@@ -48,10 +49,10 @@ fn deactivation_prevents_credit_leaking_into_a_refill() {
     assert_eq!(scheduler.deficits[0], 0);
     assert_eq!(scheduler.select(&[Some(units(2)), Some(units(1))]), Some(1));
 
-    let before = scheduler.clone();
-    assert_eq!(scheduler.deactivate(2), Err(Refusal::UnknownLane));
-    assert_eq!(scheduler.deactivate(usize::MAX), Err(Refusal::UnknownLane));
-    assert_eq!(scheduler, before);
+    refuses(&mut scheduler, Refusal::UnknownLane, |s| s.deactivate(2));
+    refuses(&mut scheduler, Refusal::UnknownLane, |s| {
+        s.deactivate(usize::MAX)
+    });
 }
 
 #[test]

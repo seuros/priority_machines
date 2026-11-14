@@ -2,10 +2,12 @@
 
 use std::{cell::RefCell, num::NonZeroU32};
 
-use magnus::{Error, RArray, RModule, Ruby, Symbol, function, method, prelude::*, typed_data::Obj};
+use magnus::{Error, RModule, Ruby, Symbol, Value, function, method, prelude::*, typed_data::Obj};
 use priority_machines::{Deactivation, DeficitRoundRobin, Refusal, WeightedRoundRobin};
 
-use crate::{Lane, deactivation, positive, ready, refusal};
+use matryona_machines::ruby::{positive, symbol};
+
+use crate::{array, deactivation, lane, ready, refusal};
 
 // This trait erases const-generic sizes, never adds inactive/phantom lanes.
 trait Policy: Send {
@@ -47,14 +49,14 @@ enum Kind {
     Deficit,
 }
 
-fn make(ruby: &Ruby, values: RArray, kind: Kind) -> Result<State, Error> {
+fn make(ruby: &Ruby, values: Value, kind: Kind) -> Result<State, Error> {
     let name = match kind {
         Kind::Weighted => "weights",
         Kind::Deficit => "quanta",
     };
-    let values = values
+    let values = array(ruby, values, name)?
         .into_iter()
-        .map(|value| positive(ruby, value, name))
+        .map(|value| positive(value, name))
         .collect::<Result<Vec<_>, _>>()?;
     macro_rules! sized {
         ($($n:literal),*) => {
@@ -84,13 +86,14 @@ fn make(ruby: &Ruby, values: RArray, kind: Kind) -> Result<State, Error> {
 fn inputs(
     ruby: &Ruby,
     state: &State,
-    values: RArray,
+    values: Value,
     kind: Kind,
 ) -> Result<Vec<Option<NonZeroU32>>, Error> {
     let name = match kind {
         Kind::Weighted => "ready",
         Kind::Deficit => "heads",
     };
+    let values = array(ruby, values, name)?;
     if values.len() != state.lanes {
         return Err(Error::new(
             ruby.exception_range_error(),
@@ -106,7 +109,7 @@ fn inputs(
         .map(|value| match kind {
             Kind::Weighted => ready(ruby, value).map(|flag| flag.then_some(NonZeroU32::MIN)),
             Kind::Deficit if value.is_nil() => Ok(None),
-            Kind::Deficit => positive(ruby, value, name).map(Some),
+            Kind::Deficit => positive(value, name).map(Some),
         })
         .collect()
 }
@@ -120,23 +123,24 @@ struct Deficit(State);
 macro_rules! wrapper {
     ($type:ident, $kind:expr) => {
         impl $type {
-            fn new(ruby: &Ruby, values: RArray) -> Result<Self, Error> {
+            fn new(ruby: &Ruby, values: Value) -> Result<Self, Error> {
                 make(ruby, values, $kind).map(Self)
             }
             fn select(
                 ruby: &Ruby,
                 rb_self: Obj<Self>,
-                values: RArray,
+                values: Value,
             ) -> Result<Option<usize>, Error> {
                 rb_self.check_frozen()?;
                 let values = inputs(ruby, &rb_self.0, values, $kind)?;
                 let selected = rb_self.0.policy.borrow_mut().select(&values);
                 Ok(selected)
             }
-            fn deactivate(ruby: &Ruby, rb_self: Obj<Self>, lane: Lane) -> Result<Symbol, Error> {
+            fn deactivate(ruby: &Ruby, rb_self: Obj<Self>, lane: Value) -> Result<Symbol, Error> {
                 rb_self.check_frozen()?;
-                let outcome = rb_self.0.policy.borrow_mut().deactivate(lane.0);
-                Ok(ruby.to_symbol(outcome.map_or_else(refusal, deactivation)))
+                let lane = self::lane(lane)?;
+                let outcome = rb_self.0.policy.borrow_mut().deactivate(lane);
+                Ok(symbol(ruby, outcome.map_or_else(refusal, deactivation)))
             }
         }
     };

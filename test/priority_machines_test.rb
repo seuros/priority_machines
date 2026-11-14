@@ -88,7 +88,27 @@ class PriorityMachinesTest < Minitest::Test
     assert_raises(ArgumentError) { PM::RoundRobin.new(3) }
     scheduler.freeze
     assert_raises(FrozenError) { scheduler.select([true]) }
+    assert_raises(FrozenError) { scheduler.select(nil) }
+    assert_raises(FrozenError) { scheduler.select([nil]) }
     assert_equal 1, scheduler.cursor
+  end
+
+  def test_array_subclasses_are_refused
+    flags = Class.new(Array)
+    error = assert_raises(TypeError) { PM::RoundRobin.new.select(flags[true]) }
+    assert_equal 'ready must be an Array', error.message
+    error = assert_raises(TypeError) { PM.earliest_deadline(flags[1]) }
+    assert_equal 'deadlines must be an Array', error.message
+    error = assert_raises(TypeError) { PM::WeightedRoundRobin.new(flags[1]) }
+    assert_equal 'weights must be an Array', error.message
+    error = assert_raises(TypeError) { PM::DeficitRoundRobin.new(flags[1]) }
+    assert_equal 'quanta must be an Array', error.message
+    error = assert_raises(TypeError) { PM::WeightedRoundRobin.new([1]).select(flags[true]) }
+    assert_equal 'ready must be an Array', error.message
+    deficit = PM::DeficitRoundRobin.new([1])
+    error = assert_raises(TypeError) { deficit.select(flags[1]) }
+    assert_equal 'heads must be an Array', error.message
+    assert_equal 0, deficit.select([1])
   end
 
   def test_earliest_deadline_takes_integer_nanoseconds
@@ -148,13 +168,13 @@ class PriorityMachinesTest < Minitest::Test
 
   def test_messages_name_the_argument
     error = assert_raises(TypeError) { PM::WeightedRoundRobin.new([1, { weight: 2 }]) }
-    assert_equal 'weights must be Integers, not Hash', error.message
+    assert_equal 'weights must be an Integer', error.message
     error = assert_raises(RangeError) { PM::DeficitRoundRobin.new([0]) }
     assert_equal 'quanta must be in 1..=4294967295', error.message
     error = assert_raises(RangeError) { PM::DeficitRoundRobin.new([1]).select([1, 1]) }
     assert_equal 'heads must hold one entry per lane: 2 given, 1 lanes', error.message
     error = assert_raises(TypeError) { PM::DeficitRoundRobin.new([1]).deactivate(nil) }
-    assert_equal 'lane must be an Integer, not NilClass', error.message
+    assert_equal 'lane must be an Integer', error.message
     error = assert_raises(RangeError) { PM::DeficitRoundRobin.new([1]).deactivate(-1) }
     assert_equal "lane must be in 0..=#{(2**64) - 1}", error.message
   end
@@ -171,6 +191,10 @@ class PriorityMachinesTest < Minitest::Test
       scheduler.freeze
       assert_raises(FrozenError) { scheduler.select([true]) }
       assert_raises(FrozenError) { scheduler.deactivate(0) }
+      assert_raises(FrozenError) { scheduler.select(nil) }
+      assert_raises(FrozenError) { scheduler.select([Object.new]) }
+      assert_raises(FrozenError) { scheduler.deactivate(nil) }
+      assert_raises(FrozenError) { scheduler.deactivate(-1) }
     end
     # No instance exists without the core behind it.
     [PM::RoundRobin, PM::WeightedRoundRobin, PM::DeficitRoundRobin].each do |scheduler|

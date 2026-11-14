@@ -2,6 +2,8 @@
 
 use core::{fmt::Debug, num::NonZeroU32};
 
+use matryona_machines::testing::XorShift64;
+
 use crate::{Deactivation, Refusal};
 
 /// A positive test amount; zero is a broken test assumption.
@@ -12,30 +14,20 @@ pub fn nonzero(value: u32) -> NonZeroU32 {
     value
 }
 
-/// xorshift64: a fixed seed keeps a trace reproducible.
-pub struct Rng(pub u64);
-
-impl Rng {
-    /// The next draw, in `0..bound`.
-    pub fn below(&mut self, bound: u32) -> u32 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        let Ok(draw) = u32::try_from(self.0 >> 40) else {
-            panic!("24 bits fit");
-        };
-        draw % bound
-    }
+/// The next draw of `rng`, in `0..bound`.
+pub fn below(rng: &mut XorShift64, bound: u32) -> u32 {
+    let Ok(draw) = u32::try_from(rng.below(u64::from(bound))) else {
+        panic!("a draw below a u32 fits a u32");
+    };
+    draw
 }
 
-impl Rng {
-    /// The next draw as an index, in `0..bound`.
-    pub fn index(&mut self, bound: u32) -> usize {
-        let Ok(index) = usize::try_from(self.below(bound)) else {
-            panic!("a u32 index fits a usize");
-        };
-        index
-    }
+/// The next draw of `rng` as an index, in `0..bound`.
+pub fn index(rng: &mut XorShift64, bound: u32) -> usize {
+    let Ok(index) = usize::try_from(below(rng, bound)) else {
+        panic!("a u32 index fits a usize");
+    };
+    index
 }
 
 /// What a randomized run's deactivations answered. A refusal and an honoured
