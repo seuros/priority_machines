@@ -7,13 +7,13 @@ mod scheduler;
 use std::time::Duration;
 
 use magnus::{Error, RArray, Ruby, Value};
-use matryona_machines::ruby::{exact_array, integer, optional};
+use matryona_machines::ruby::{exact_array_with, integer, optional};
 use priority_machines::{Deactivation, Refusal};
 
 /// `value` as exactly an `Array` (no subclass), `TypeError` naming the
 /// argument otherwise.
 pub(crate) fn array(ruby: &Ruby, value: Value, name: &'static str) -> Result<RArray, Error> {
-    exact_array(ruby, value, format!("{name} must be an Array"))
+    exact_array_with(ruby, value, || format!("{name} must be an Array"))
 }
 
 /// A lane index: any Integer a `usize` holds. The core answers for the rest.

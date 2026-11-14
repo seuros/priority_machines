@@ -5,7 +5,7 @@ resolver = "3"
 
 [workspace.dependencies]
 priority-machines = { path = "ext/priority_machines_native/core" }
-matryona-machines = { version = ">=0.3", default-features = false }
+matryona-machines = { version = ">=0.4", default-features = false }
 magnus = { version = "0.9.3", default-features = false }
 rb-sys = { version = "0.9.130", default-features = false, features = ["stable-api-compiled-fallback"] }
 
