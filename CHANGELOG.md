@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/seuros/priority_machines/compare/priority_machines/v0.4.0...priority_machines/v0.5.0) (2026-11-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* read ready flags and deficit heads with matryona boolean/optional_positive
+
+### Features
+
+* read ready flags and deficit heads with matryona boolean/optional_positive ([09676a3](https://github.com/seuros/priority_machines/commit/09676a33e1ff7e946b24e26ac825cea7747dd3a1))
+
 ## [0.4.0](https://github.com/seuros/priority_machines/compare/priority_machines/v0.3.0...priority_machines/v0.4.0) (2026-11-14)
 
 
