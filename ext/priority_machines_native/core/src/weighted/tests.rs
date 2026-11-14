@@ -1,52 +1,41 @@
-#![allow(clippy::expect_used)] // Failed test assumptions should panic.
-
 use super::*;
+use crate::test_support::{Rng, Tally, nonzero as weight};
 
-fn weight(value: u32) -> NonZeroU32 {
-    NonZeroU32::new(value).expect("test weight is positive")
-}
-
-#[test]
-fn serves_weighted_bursts() {
-    let mut scheduler = WeightedRoundRobin::new([weight(3), weight(1), weight(2)]);
-    let turns: [_; 12] = core::array::from_fn(|_| scheduler.select(&[true; 3]));
-    assert_eq!(
-        turns,
-        [
-            Some(0),
-            Some(0),
-            Some(0),
-            Some(1),
-            Some(2),
-            Some(2),
-            Some(0),
-            Some(0),
-            Some(0),
-            Some(1),
-            Some(2),
-            Some(2),
-        ],
-    );
-}
-
-#[test]
-fn skips_unready_lanes_and_forfeits_residual_turns() {
-    let mut scheduler = WeightedRoundRobin::new([weight(3), weight(1)]);
-    assert_eq!(scheduler.select(&[true, true]), Some(0));
-    assert_eq!(scheduler.select(&[false, true]), Some(1));
-    assert_eq!(scheduler.select(&[true, true]), Some(0));
-    assert_eq!(scheduler.remaining, 2);
-}
-
-#[test]
-fn idle_lanes_do_not_bank_turns() {
-    let mut scheduler = WeightedRoundRobin::new([weight(2), weight(1)]);
-    assert_eq!(scheduler.select(&[true, true]), Some(0));
-    for _ in 0..10 {
-        assert_eq!(scheduler.select(&[false, false]), None);
+/// Run `steps` against a fresh scheduler and answer its remaining burst.
+fn replay<const N: usize>(weights: [u32; N], steps: &[([bool; N], Option<usize>)]) -> u32 {
+    let mut scheduler = WeightedRoundRobin::new(weights.map(weight));
+    for (index, (ready, expected)) in steps.iter().enumerate() {
+        assert_eq!(
+            scheduler.select(ready),
+            *expected,
+            "{weights:?} step {index}"
+        );
     }
-    let turns: [_; 3] = core::array::from_fn(|_| scheduler.select(&[true; 2]));
-    assert_eq!(turns, [Some(0), Some(0), Some(1)]);
+    scheduler.remaining
+}
+
+#[test]
+fn scripted_selections_serve_bursts_and_forfeit_idle_turns() {
+    const ALL: [bool; 3] = [true; 3];
+    let bursts = [0, 0, 0, 1, 2, 2, 0, 0, 0, 1, 2, 2].map(|lane| (ALL, Some(lane)));
+    assert_eq!(replay([3, 1, 2], &bursts), 3);
+    // An unready lane is skipped and forfeits its residual turns.
+    let skipped = [
+        ([true; 2], Some(0)),
+        ([false, true], Some(1)),
+        ([true; 2], Some(0)),
+    ];
+    assert_eq!(replay([3, 1], &skipped), 2);
+    // Idle lanes bank no turns.
+    let idle = [
+        ([true; 2], Some(0)),
+        ([false; 2], None),
+        ([false; 2], None),
+        ([true; 2], Some(0)),
+        ([true; 2], Some(0)),
+        ([true; 2], Some(1)),
+    ];
+    assert_eq!(replay([2, 1], &idle), 2);
 }
 
 #[test]
@@ -81,7 +70,9 @@ fn full_cycles_match_weight_ratios() {
             let mut scheduler = WeightedRoundRobin::new([weight(first), weight(second)]);
             let mut counts = [0; 2];
             for _ in 0..10 * (first + second) {
-                let lane = scheduler.select(&[true; 2]).expect("both lanes are ready");
+                let Some(lane) = scheduler.select(&[true; 2]) else {
+                    panic!("both lanes are ready");
+                };
                 counts[lane] += 1;
             }
             assert_eq!(counts, [10 * first, 10 * second]);
@@ -174,17 +165,9 @@ impl Model {
     }
 }
 
-/// xorshift64: a fixed seed keeps the trace reproducible.
-fn next(state: &mut u64) -> usize {
-    *state ^= *state << 13;
-    *state ^= *state >> 7;
-    *state ^= *state << 17;
-    usize::try_from(*state >> 40).expect("24 bits fit")
-}
-
 #[test]
 fn randomized_trace_matches_a_reference_model() {
-    let mut seed = 0x4215_4215_4215_4215;
+    let mut rng = Rng(0x4215_4215_4215_4215);
     let weights = [3, 1, 2];
     let mut scheduler = WeightedRoundRobin::new(weights.map(weight));
     let mut model = Model {
@@ -192,33 +175,23 @@ fn randomized_trace_matches_a_reference_model() {
         lane: 0,
         left: weights[0],
     };
-    let (mut refusals, mut repeats) = (0, 0);
+    let mut tally = Tally::default();
     for _ in 0..20_000 {
         let before = scheduler.clone();
-        if next(&mut seed).is_multiple_of(4) {
-            let lane = next(&mut seed) % 5;
+        if rng.below(4) == 0 {
+            let lane = rng.index(5);
             let outcome = scheduler.deactivate(lane);
             assert_eq!(outcome, model.deactivate(lane));
-            match outcome {
-                Err(Refusal::UnknownLane) => {
-                    assert_eq!(scheduler, before);
-                    refusals += 1;
-                }
-                Ok(Deactivation::Idle) => {
-                    assert_eq!(scheduler, before);
-                    repeats += 1;
-                }
-                Ok(Deactivation::Deactivated) => assert_ne!(scheduler, before),
-            }
+            tally.record(outcome, &scheduler, &before);
         } else {
-            let bits = next(&mut seed);
+            let bits = rng.below(8);
             let ready = core::array::from_fn(|lane| bits >> lane & 1 == 1);
             assert_eq!(scheduler.select(&ready), model.select(ready));
         }
         assert_eq!(scheduler.cursor, model.lane);
         assert_eq!(scheduler.remaining, model.left);
     }
-    assert!(refusals > 500 && repeats > 500);
+    assert!(tally.refusals > 500 && tally.repeats > 500);
 }
 
 #[test]

@@ -122,11 +122,7 @@ impl<const N: usize> DeficitRoundRobin<N> {
     }
 
     const fn advance(&mut self) {
-        self.cursor = if self.cursor + 1 == N {
-            0
-        } else {
-            self.cursor + 1
-        };
+        self.cursor = crate::next_lane(self.cursor, N);
         self.needs_quantum = true;
     }
 }

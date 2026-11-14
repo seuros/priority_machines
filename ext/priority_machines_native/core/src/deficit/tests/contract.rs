@@ -48,40 +48,22 @@ fn an_empty_round_clears_credit_ends_the_visit_and_keeps_the_cursor() {
     assert_eq!(scheduler.deficits, [0, 6]);
 }
 
-/// xorshift64: a fixed seed keeps the trace reproducible.
-fn next(state: &mut u64) -> u32 {
-    *state ^= *state << 13;
-    *state ^= *state >> 7;
-    *state ^= *state << 17;
-    u32::try_from(*state >> 40).expect("24 bits fit")
-}
-
 #[test]
 fn randomized_trace_matches_textbook_drr() {
-    let mut seed = 0x4215_0000_4215_0001;
+    let mut rng = Rng(0x4215_0000_4215_0001);
     let mut actual = DeficitRoundRobin::new([units(3), units(7)]);
     let mut reference = actual.clone();
-    let (mut refusals, mut repeats, mut empty) = (0, 0, 0);
+    let (mut tally, mut empty) = (Tally::default(), 0);
     for _ in 0..20_000 {
         let before = actual.clone();
-        if next(&mut seed).is_multiple_of(4) {
-            let lane = usize::try_from(next(&mut seed) % 4).expect("small");
+        if rng.below(4) == 0 {
+            let lane = rng.index(4);
             let outcome = actual.deactivate(lane);
             assert_eq!(outcome, reference_deactivate(&mut reference, lane));
-            match outcome {
-                Err(Refusal::UnknownLane) => {
-                    assert_eq!(actual, before);
-                    refusals += 1;
-                }
-                Ok(Deactivation::Idle) => {
-                    assert_eq!(actual, before);
-                    repeats += 1;
-                }
-                Ok(Deactivation::Deactivated) => assert_ne!(actual, before),
-            }
+            tally.record(outcome, &actual, &before);
         } else {
             let heads = core::array::from_fn(|_| {
-                let draw = next(&mut seed);
+                let draw = rng.below(57);
                 (!draw.is_multiple_of(3)).then(|| units(1 + draw % 19))
             });
             let selected = actual.select(&heads);
@@ -91,7 +73,7 @@ fn randomized_trace_matches_textbook_drr() {
         }
         assert_eq!(actual, reference);
     }
-    assert!(refusals > 500 && repeats > 500 && empty > 500);
+    assert!(tally.refusals > 500 && tally.repeats > 500 && empty > 500);
 }
 
 #[test]

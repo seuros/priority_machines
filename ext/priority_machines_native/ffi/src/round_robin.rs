@@ -33,6 +33,7 @@ impl Wrapper {
 
 pub fn define(ruby: &Ruby, module: RModule) -> Result<(), Error> {
     let class = module.define_class("RoundRobin", ruby.class_object())?;
+    class.undef_default_alloc_func();
     class.define_singleton_method("new", function!(Wrapper::new, 0))?;
     class.define_method("select", method!(Wrapper::select, 1))?;
     class.define_method("cursor", method!(Wrapper::cursor, 0))

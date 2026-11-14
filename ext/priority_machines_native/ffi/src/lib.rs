@@ -13,21 +13,29 @@ use magnus::{
 };
 use priority_machines::{Deactivation, Refusal};
 
-fn integer(value: Value, message: &'static str) -> Result<(), Error> {
+fn integer(value: Value, name: &str, wanted: &str) -> Result<(), Error> {
     if Integer::from_value(value).is_some() {
         return Ok(());
     }
     Err(Error::new(
         Ruby::get_with(value).exception_type_error(),
-        message,
+        format!("{name} must be {wanted}, not {}", value.class()),
     ))
 }
 
 /// The core's `NonZeroU32`: an Integer in `1..=u32::MAX`, zero out of range.
-pub(crate) fn positive(ruby: &Ruby, value: Value) -> Result<NonZeroU32, Error> {
-    integer(value, "expected an Integer")?;
-    NonZeroU32::new(u32::try_convert(value)?)
-        .ok_or_else(|| Error::new(ruby.exception_range_error(), "expected a positive Integer"))
+/// `name` is the argument, so the message says which one was wrong.
+pub(crate) fn positive(ruby: &Ruby, value: Value, name: &str) -> Result<NonZeroU32, Error> {
+    integer(value, name, "Integers")?;
+    u32::try_convert(value)
+        .ok()
+        .and_then(NonZeroU32::new)
+        .ok_or_else(|| {
+            Error::new(
+                ruby.exception_range_error(),
+                format!("{name} must be in 1..={}", u32::MAX),
+            )
+        })
 }
 
 /// A lane index: any Integer a `usize` holds. The core answers for the rest.
@@ -36,8 +44,13 @@ pub(crate) struct Lane(pub(crate) usize);
 
 impl TryConvert for Lane {
     fn try_convert(value: Value) -> Result<Self, Error> {
-        integer(value, "lane must be an Integer")?;
-        usize::try_convert(value).map(Self)
+        integer(value, "lane", "an Integer")?;
+        usize::try_convert(value).map(Self).map_err(|_| {
+            Error::new(
+                Ruby::get_with(value).exception_range_error(),
+                format!("lane must be in 0..={}", usize::MAX),
+            )
+        })
     }
 }
 
@@ -71,7 +84,7 @@ pub(crate) const fn deactivation(deactivation: Deactivation) -> &'static str {
 
 /// A monotonic instant: Integer nanoseconds, `0..=u64::MAX`.
 fn instant(value: Value) -> Result<Duration, Error> {
-    integer(value, "deadline must be Integer nanoseconds or nil")?;
+    integer(value, "deadlines", "Integer nanoseconds or nil")?;
     u64::try_convert(value).map(Duration::from_nanos)
 }
 

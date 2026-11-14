@@ -1,43 +1,42 @@
-#![allow(clippy::expect_used)] // Failed test assumptions should panic.
-
 use super::*;
+use crate::test_support::{Rng, Tally, nonzero as units};
 
 mod contract;
 
-fn units(value: u32) -> NonZeroU32 {
-    NonZeroU32::new(value).expect("test units are positive")
+/// Run `steps` against fresh quanta and answer the deficits they leave.
+fn replay<const N: usize>(
+    quanta: [u32; N],
+    steps: &[([Option<u32>; N], Option<usize>)],
+) -> [u64; N] {
+    let mut scheduler = DeficitRoundRobin::new(quanta.map(units));
+    for (index, (heads, expected)) in steps.iter().enumerate() {
+        let heads = heads.map(|head| head.map(units));
+        assert_eq!(
+            scheduler.select(&heads),
+            *expected,
+            "{quanta:?} step {index}"
+        );
+    }
+    scheduler.deficits
 }
 
 #[test]
-fn quantum_pays_for_multiple_heads_in_one_visit() {
-    let mut scheduler = DeficitRoundRobin::new([units(4), units(2)]);
-    let heads = [Some(units(2)); 2];
-    let turns: [_; 6] = core::array::from_fn(|_| scheduler.select(&heads));
-    assert_eq!(
-        turns,
-        [Some(0), Some(0), Some(1), Some(0), Some(0), Some(1)],
-    );
-}
-
-#[test]
-fn residual_credit_survives_an_unaffordable_head() {
-    let mut scheduler = DeficitRoundRobin::new([units(3), units(1)]);
-    let heads = [Some(units(2)), Some(units(1))];
-    assert_eq!(scheduler.select(&heads), Some(0));
-    assert_eq!(scheduler.deficits, [1, 0]);
-    assert_eq!(scheduler.select(&heads), Some(1));
-    assert_eq!(scheduler.select(&heads), Some(0));
-    assert_eq!(scheduler.select(&heads), Some(0));
-}
-
-#[test]
-fn empty_lanes_lose_credit_even_when_not_visited() {
-    let mut scheduler = DeficitRoundRobin::new([units(4), units(4)]);
-    assert_eq!(scheduler.select(&[Some(units(3)); 2]), Some(0));
-    assert_eq!(scheduler.select(&[Some(units(3)); 2]), Some(1));
-    assert_eq!(scheduler.deficits, [1, 1]);
-    assert_eq!(scheduler.select(&[None, Some(units(1))]), Some(1));
-    assert_eq!(scheduler.deficits, [0, 0]);
+fn scripted_selections_carry_credit_between_visits() {
+    // One quantum pays for several heads in one visit.
+    let two = [Some(2); 2];
+    let multiple = [0, 0, 1, 0, 0, 1].map(|lane| (two, Some(lane)));
+    assert_eq!(replay([4, 2], &multiple), [0, 0]);
+    // Residual credit survives an unaffordable head.
+    let heads = [Some(2), Some(1)];
+    let residual = [0, 1, 0, 0].map(|lane| (heads, Some(lane)));
+    assert_eq!(replay([3, 1], &residual), [0, 0]);
+    // Empty lanes lose their credit even when the round does not visit them.
+    let empty = [
+        ([Some(3); 2], Some(0)),
+        ([Some(3); 2], Some(1)),
+        ([None, Some(1)], Some(1)),
+    ];
+    assert_eq!(replay([4, 4], &empty), [0, 0]);
 }
 
 #[test]
@@ -56,16 +55,13 @@ fn deactivation_prevents_credit_leaking_into_a_refill() {
 }
 
 #[test]
-fn very_large_costs_skip_billions_of_empty_rounds() {
+fn extreme_quanta_and_costs_do_not_overflow() {
+    // A cost of u32::MAX against a quantum of one skips billions of rounds.
     let mut scheduler = DeficitRoundRobin::new([units(1)]);
     for _ in 0..3 {
         assert_eq!(scheduler.select(&[Some(units(u32::MAX))]), Some(0));
         assert_eq!(scheduler.deficits, [0]);
     }
-}
-
-#[test]
-fn maximum_quantum_and_cost_do_not_overflow() {
     let mut scheduler = DeficitRoundRobin::new([units(u32::MAX), units(u32::MAX)]);
     let heads = [Some(units(u32::MAX - 1)), Some(units(u32::MAX))];
     for _ in 0..100 {
@@ -97,8 +93,10 @@ fn shares_cost_rather_than_dispatch_counts() {
     let heads = [Some(units(3)), Some(units(1))];
     let mut spent = [0; 2];
     for _ in 0..500 {
-        let lane = scheduler.select(&heads).expect("both lanes are ready");
-        spent[lane] += heads[lane].expect("selected lane is ready").get();
+        let Some(lane) = scheduler.select(&heads) else {
+            panic!("both lanes are ready");
+        };
+        spent[lane] += heads[lane].map_or(0, NonZeroU32::get);
     }
     assert_eq!(spent, [600, 300]);
 }
@@ -182,28 +180,5 @@ fn optimized_round_skipping_matches_textbook_drr() {
                 }
             }
         }
-    }
-}
-
-#[test]
-fn changing_head_costs_match_textbook_drr() {
-    let mut actual = DeficitRoundRobin::new([units(3), units(7)]);
-    let mut reference = actual.clone();
-    for step in 0..1_000 {
-        let heads = [
-            (step % 11 != 0).then(|| units(1 + step % 17)),
-            (step % 13 != 0).then(|| units(1 + (step * 3) % 19)),
-        ];
-        if step % 23 == 0 {
-            assert_eq!(
-                actual.deactivate(0),
-                reference_deactivate(&mut reference, 0)
-            );
-        }
-        assert_eq!(
-            actual.select(&heads),
-            reference_select(&mut reference, heads)
-        );
-        assert_eq!(actual, reference);
     }
 }

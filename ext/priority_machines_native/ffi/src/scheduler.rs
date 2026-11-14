@@ -36,20 +36,41 @@ struct State {
     lanes: usize,
 }
 
-fn make(ruby: &Ruby, values: RArray, deficit: bool) -> Result<State, Error> {
+/// The largest `N` this binding compiles the core's schedulers for. The core
+/// itself has no ceiling: `N` is its const generic.
+const MAX_LANES: usize = 16;
+
+/// Which core scheduler a wrapper holds.
+#[derive(Clone, Copy)]
+enum Kind {
+    Weighted,
+    Deficit,
+}
+
+fn make(ruby: &Ruby, values: RArray, kind: Kind) -> Result<State, Error> {
+    let name = match kind {
+        Kind::Weighted => "weights",
+        Kind::Deficit => "quanta",
+    };
     let values = values
         .into_iter()
-        .map(|value| positive(ruby, value))
+        .map(|value| positive(ruby, value, name))
         .collect::<Result<Vec<_>, _>>()?;
     macro_rules! sized {
         ($($n:literal),*) => {
             match values.len() {
                 $($n => {
                     let array = std::array::from_fn::<_, $n, _>(|index| values[index]);
-                    if deficit { Box::new(DeficitRoundRobin::new(array)) as Box<dyn Policy> }
-                    else { Box::new(WeightedRoundRobin::new(array)) as Box<dyn Policy> }
+                    let policy: Box<dyn Policy> = match kind {
+                        Kind::Weighted => Box::new(WeightedRoundRobin::new(array)),
+                        Kind::Deficit => Box::new(DeficitRoundRobin::new(array)),
+                    };
+                    policy
                 },)*
-                _ => return Err(Error::new(ruby.exception_arg_error(), "lane count must be 0..16")),
+                _ => return Err(Error::new(
+                    ruby.exception_range_error(),
+                    format!("{name} holds at most {MAX_LANES} lanes"),
+                )),
             }
         };
     }
@@ -64,24 +85,28 @@ fn inputs(
     ruby: &Ruby,
     state: &State,
     values: RArray,
-    deficit: bool,
+    kind: Kind,
 ) -> Result<Vec<Option<NonZeroU32>>, Error> {
+    let name = match kind {
+        Kind::Weighted => "ready",
+        Kind::Deficit => "heads",
+    };
     if values.len() != state.lanes {
         return Err(Error::new(
-            ruby.exception_arg_error(),
-            "input length must match lane count",
+            ruby.exception_range_error(),
+            format!(
+                "{name} must hold one entry per lane: {} given, {} lanes",
+                values.len(),
+                state.lanes
+            ),
         ));
     }
     values
         .into_iter()
-        .map(|value| {
-            if !deficit {
-                ready(ruby, value).map(|flag| flag.then_some(NonZeroU32::MIN))
-            } else if value.is_nil() {
-                Ok(None)
-            } else {
-                positive(ruby, value).map(Some)
-            }
+        .map(|value| match kind {
+            Kind::Weighted => ready(ruby, value).map(|flag| flag.then_some(NonZeroU32::MIN)),
+            Kind::Deficit if value.is_nil() => Ok(None),
+            Kind::Deficit => positive(ruby, value, name).map(Some),
         })
         .collect()
 }
@@ -93,10 +118,10 @@ struct Weighted(State);
 struct Deficit(State);
 
 macro_rules! wrapper {
-    ($type:ident, $deficit:literal) => {
+    ($type:ident, $kind:expr) => {
         impl $type {
             fn new(ruby: &Ruby, values: RArray) -> Result<Self, Error> {
-                make(ruby, values, $deficit).map(Self)
+                make(ruby, values, $kind).map(Self)
             }
             fn select(
                 ruby: &Ruby,
@@ -104,7 +129,7 @@ macro_rules! wrapper {
                 values: RArray,
             ) -> Result<Option<usize>, Error> {
                 rb_self.check_frozen()?;
-                let values = inputs(ruby, &rb_self.0, values, $deficit)?;
+                let values = inputs(ruby, &rb_self.0, values, $kind)?;
                 let selected = rb_self.0.policy.borrow_mut().select(&values);
                 Ok(selected)
             }
@@ -117,13 +142,14 @@ macro_rules! wrapper {
     };
 }
 
-wrapper!(Weighted, false);
-wrapper!(Deficit, true);
+wrapper!(Weighted, Kind::Weighted);
+wrapper!(Deficit, Kind::Deficit);
 
 pub fn define(ruby: &Ruby, module: RModule) -> Result<(), Error> {
     macro_rules! register {
         ($type:ident, $name:literal) => {{
             let class = module.define_class($name, ruby.class_object())?;
+            class.undef_default_alloc_func();
             class.define_singleton_method("new", function!($type::new, 1))?;
             class.define_method("select", method!($type::select, 1))?;
             class.define_method("deactivate", method!($type::deactivate, 1))?;
@@ -131,5 +157,6 @@ pub fn define(ruby: &Ruby, module: RModule) -> Result<(), Error> {
     }
     register!(Weighted, "WeightedRoundRobin");
     register!(Deficit, "DeficitRoundRobin");
+    module.const_set("MAX_LANES", MAX_LANES)?;
     Ok(())
 }

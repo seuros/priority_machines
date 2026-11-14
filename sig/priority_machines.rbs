@@ -3,12 +3,15 @@
 # Weights, quanta and head costs are Integers in 1..2**32-1: TypeError for
 # anything else, RangeError outside the range, zero included. A lane index is
 # an Integer in 0..2**64-1. WeightedRoundRobin and DeficitRoundRobin hold zero
-# to sixteen lanes, and `select` takes exactly that many entries:
-# ArgumentError otherwise. A frozen scheduler raises FrozenError on `select`
-# and `deactivate`. Refusals are symbols, one per core `Refusal` variant, and
-# a refused call changes nothing.
+# to MAX_LANES lanes, and `select` takes exactly that many entries:
+# RangeError otherwise. Messages name the argument. A frozen scheduler raises
+# FrozenError on `select` and `deactivate`. Refusals are symbols, one per
+# core `Refusal` variant, and a refused call changes nothing.
 module PriorityMachines
   VERSION: String
+
+  # The largest lane count this gem compiles the core's const generic `N` for.
+  MAX_LANES: Integer
 
   # What an honoured `deactivate` did. :idle is the honoured repeat: the lane
   # held no credit and was not mid-visit (served or paid by the visit in

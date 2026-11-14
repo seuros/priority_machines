@@ -115,18 +115,20 @@ class PriorityMachinesTest < Minitest::Test
     weighted = PM::WeightedRoundRobin.new([2, 1])
     assert_raises(TypeError) { weighted.select([true, Object.new]) }
     assert_raises(TypeError) { weighted.select([true, nil]) }
-    assert_raises(ArgumentError) { weighted.select([true]) }
+    assert_raises(RangeError) { weighted.select([true]) }
     assert_equal [0, 0, 1], Array.new(3) { weighted.select([true, true]) }
     deficit = PM::DeficitRoundRobin.new([2, 1])
     assert_raises(TypeError) { deficit.select([1, 1.5]) }
     assert_raises(RangeError) { deficit.select([1, 0]) }
-    assert_raises(ArgumentError) { deficit.select([1, 1, 1]) }
+    assert_raises(RangeError) { deficit.select([1, 1, 1]) }
     assert_equal [0, 0, 1], Array.new(3) { deficit.select([1, 1]) }
   end
 
   def test_numeric_boundaries
-    assert_raises(ArgumentError) { PM::WeightedRoundRobin.new([1] * 17) }
-    assert_raises(ArgumentError) { PM::DeficitRoundRobin.new([1] * 17) }
+    assert_equal 16, PM::MAX_LANES
+    error = assert_raises(RangeError) { PM::WeightedRoundRobin.new([1] * (PM::MAX_LANES + 1)) }
+    assert_equal 'weights holds at most 16 lanes', error.message
+    assert_raises(RangeError) { PM::DeficitRoundRobin.new([1] * (PM::MAX_LANES + 1)) }
     [1.5, '1', nil, Object.new].each do |value|
       assert_raises(TypeError) { PM::DeficitRoundRobin.new([value]) }
       assert_raises(TypeError) { PM::WeightedRoundRobin.new([value]) }
@@ -144,6 +146,19 @@ class PriorityMachinesTest < Minitest::Test
     assert_raises(TypeError) { PM::DeficitRoundRobin.new(quanta: [1]) }
   end
 
+  def test_messages_name_the_argument
+    error = assert_raises(TypeError) { PM::WeightedRoundRobin.new([1, { weight: 2 }]) }
+    assert_equal 'weights must be Integers, not Hash', error.message
+    error = assert_raises(RangeError) { PM::DeficitRoundRobin.new([0]) }
+    assert_equal 'quanta must be in 1..=4294967295', error.message
+    error = assert_raises(RangeError) { PM::DeficitRoundRobin.new([1]).select([1, 1]) }
+    assert_equal 'heads must hold one entry per lane: 2 given, 1 lanes', error.message
+    error = assert_raises(TypeError) { PM::DeficitRoundRobin.new([1]).deactivate(nil) }
+    assert_equal 'lane must be an Integer, not NilClass', error.message
+    error = assert_raises(RangeError) { PM::DeficitRoundRobin.new([1]).deactivate(-1) }
+    assert_equal "lane must be in 0..=#{(2**64) - 1}", error.message
+  end
+
   def test_only_the_core_operations_are_exposed
     assert_equal %i[cursor select], PM::RoundRobin.public_instance_methods(false).sort
     [PM::WeightedRoundRobin, PM::DeficitRoundRobin].each do |scheduler|
@@ -156,6 +171,10 @@ class PriorityMachinesTest < Minitest::Test
       scheduler.freeze
       assert_raises(FrozenError) { scheduler.select([true]) }
       assert_raises(FrozenError) { scheduler.deactivate(0) }
+    end
+    # No instance exists without the core behind it.
+    [PM::RoundRobin, PM::WeightedRoundRobin, PM::DeficitRoundRobin].each do |scheduler|
+      assert_raises(TypeError) { scheduler.allocate }
     end
     first = PM::WeightedRoundRobin.new([2, 1])
     first.select([true, true])

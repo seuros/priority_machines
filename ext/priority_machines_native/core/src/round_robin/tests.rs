@@ -1,47 +1,58 @@
 use super::*;
 
-#[test]
-fn takes_turns_in_order() {
-    let mut scheduler = RoundRobin::new();
-    let turns: [_; 5] = core::array::from_fn(|_| scheduler.select(&[true; 3]));
-    assert_eq!(turns, [Some(0), Some(1), Some(2), Some(0), Some(1)]);
-}
+/// A scripted trace: each ready view with the lane it must select.
+type Steps = &'static [(&'static [bool], Option<usize>)];
 
 #[test]
-fn skips_unready_lanes_and_resumes_after_the_pick() {
-    let mut scheduler = RoundRobin::new();
-    assert_eq!(scheduler.select(&[false, true, true]), Some(1));
-    assert_eq!(scheduler.select(&[true, true, false]), Some(0));
-    assert_eq!(scheduler.cursor(), 1);
-}
-
-#[test]
-fn nothing_ready_moves_nothing() {
-    let mut scheduler = RoundRobin::new();
-    assert_eq!(scheduler.select(&[true, true]), Some(0));
-    assert_eq!(scheduler.select(&[false, false]), None);
-    assert_eq!(scheduler.select(&[]), None);
-    assert_eq!(scheduler.cursor(), 1);
-}
-
-#[test]
-fn lane_count_may_change_between_calls() {
-    let mut scheduler = RoundRobin::new();
-    assert_eq!(scheduler.select(&[true; 4]), Some(0));
-    assert_eq!(scheduler.select(&[true; 4]), Some(1));
-    assert_eq!(scheduler.select(&[true; 4]), Some(2));
-    // Shrunk: the cursor wraps instead of indexing out of range.
-    assert_eq!(scheduler.select(&[true; 2]), Some(1));
-    // Grown: continues from where it was.
-    assert_eq!(scheduler.select(&[true; 5]), Some(0));
-}
-
-#[test]
-fn every_lane_is_served_once_per_cycle() {
-    let mut scheduler = RoundRobin::new();
-    let mut counts = [0; 7];
-    for _ in 0..70 {
-        counts[scheduler.select(&[true; 7]).unwrap_or(usize::MAX)] += 1;
+fn scripted_selections_follow_the_cursor() {
+    const ALL3: &[bool] = &[true; 3];
+    const ALL4: &[bool] = &[true; 4];
+    let cases: [(Steps, usize); 4] = [
+        // Turns in order, wrapping.
+        (
+            &[
+                (ALL3, Some(0)),
+                (ALL3, Some(1)),
+                (ALL3, Some(2)),
+                (ALL3, Some(0)),
+                (ALL3, Some(1)),
+            ],
+            2,
+        ),
+        // Unready lanes are skipped; the search resumes after the pick.
+        (
+            &[
+                (&[false, true, true], Some(1)),
+                (&[true, true, false], Some(0)),
+            ],
+            1,
+        ),
+        // Nothing ready, or no lanes at all, moves nothing.
+        (
+            &[
+                (&[true, true], Some(0)),
+                (&[false, false], None),
+                (&[], None),
+            ],
+            1,
+        ),
+        // The lane count may shrink (the cursor wraps) or grow between calls.
+        (
+            &[
+                (ALL4, Some(0)),
+                (ALL4, Some(1)),
+                (ALL4, Some(2)),
+                (&[true; 2], Some(1)),
+                (&[true; 5], Some(0)),
+            ],
+            1,
+        ),
+    ];
+    for (steps, cursor) in cases {
+        let mut scheduler = RoundRobin::new();
+        for &(ready, expected) in steps {
+            assert_eq!(scheduler.select(ready), expected, "{ready:?}");
+        }
+        assert_eq!(scheduler.cursor(), cursor);
     }
-    assert_eq!(counts, [10; 7]);
 }

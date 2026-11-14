@@ -173,6 +173,9 @@ assert_eq!(scheduler.select(&[true, true]), Some(1));
 - **Time.** Only `earliest_deadline` takes time: instants as
   `core::time::Duration` since one monotonic epoch the caller picks. No
   scheduler reads or stores a clock. Weights, quanta and costs are counts.
+  No answer records a clock, because no state holds one.
+- **Capacity.** The lane count is the const generic `N`; the crate sets no
+  ceiling on it.
 - **Exhaustive.** `Refusal` and `Deactivation` are exhaustive: a new variant
   is a breaking change every `match` must handle.
 

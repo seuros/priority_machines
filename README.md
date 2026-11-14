@@ -202,7 +202,7 @@ A call that is honoured answers with a value. A call that is not honoured answer
 
 ## The Rules of the Escort
 
-- **Lanes are zero to sixteen** for the weighted and deficit schedulers. The weights or quanta array sets the lane count; every later `select` must pass an array of exactly that length or it raises `ArgumentError`, and so does a seventeenth lane. `RoundRobin` takes any length, every call.
+- **Lanes are zero to sixteen** for the weighted and deficit schedulers. The core has no ceiling of its own: the lane count is its const generic `N`, and `PriorityMachines::MAX_LANES` (16) is the largest `N` this gem compiles. The weights or quanta array sets the lane count; every later `select` must pass an array of exactly that length (the core takes a `[_; N]`) or it raises `RangeError`, and so does a seventeenth lane. `RoundRobin` takes any length, every call.
 - **Positional, like the core.** `WeightedRoundRobin.new(weights)`, `DeficitRoundRobin.new(quanta)`, `RoundRobin.new`. There are no keywords and no defaults.
 - **Weights, quanta and costs are positive Integers** up to `4_294_967_295`. Floats raise `TypeError`. Zero, negatives and anything larger raise `RangeError`.
 - **Ready flags are real booleans.** Anything that isn't `true` or `false` raises `TypeError`, `nil` included.
@@ -210,7 +210,8 @@ A call that is honoured answers with a value. A call that is not honoured answer
 - **A refusal is a symbol, and nothing changed.** `:unknown_lane` leaves the scheduler exactly as it was. A lane index is any Integer in `0..2**64-1`; one that is not a lane is refused, not raised.
 - **A repeat is honoured.** Deactivating a lane that holds nothing answers `:idle` and changes nothing. The scheduler can prove it from its own state: the lane has no credit and is not mid-visit. A lane is mid-visit only when the scheduler points at it and this visit has already served it a turn (weighted) or paid it its quantum (deficit); a lane that is merely next in line holds nothing, so deactivating it never costs it its place.
 - **No handles.** Lanes are indices you chose, not ids the scheduler issued, so there is nothing to scope and nothing to resume after a restart: build a fresh scheduler.
-- **Bad input changes nothing.** The whole call is checked before any lane state moves.
+- **Bad input changes nothing.** The whole call is checked before any lane state moves. Wrong type is `TypeError`, a value the core does not accept is `RangeError`, and the message names the argument (`weights must be Integers, not Hash`). `ArgumentError` only ever comes from Ruby itself, for arity. After the core has answered, the binding only hands back the index or symbol, so a raise never costs a turn.
+- **No answer records a clock.** No scheduler takes one, and `earliest_deadline` is stateless.
 - **Frozen means frozen.** `freeze` a scheduler and `select` and `deactivate` raise `FrozenError`.
 
 ## What You Think You're Doing vs Reality

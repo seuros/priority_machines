@@ -29,10 +29,10 @@ impl RoundRobin {
         let mut visited = 0;
         while visited < lanes {
             if ready[lane] {
-                self.cursor = if lane + 1 == lanes { 0 } else { lane + 1 };
+                self.cursor = crate::next_lane(lane, lanes);
                 return Some(lane);
             }
-            lane = if lane + 1 == lanes { 0 } else { lane + 1 };
+            lane = crate::next_lane(lane, lanes);
             visited += 1;
         }
         None
