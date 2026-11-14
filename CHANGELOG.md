@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/seuros/priority_machines/compare/priority_machines/v0.3.0...priority_machines/v0.4.0) (2026-11-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* adopt matryona-machines 0.2 (exact arrays, frozen-first)
+
+### Features
+
+* adopt matryona-machines 0.2 (exact arrays, frozen-first) ([cdc7404](https://github.com/seuros/priority_machines/commit/cdc740470841f423b0e2fdfbcb8f37838ab2ba2e))
+
 ## [0.3.0](https://github.com/seuros/priority_machines/compare/priority_machines/v0.2.0...priority_machines/v0.3.0) (2026-11-14)
 
 
