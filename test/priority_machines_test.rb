@@ -179,6 +179,32 @@ class PriorityMachinesTest < Minitest::Test
     assert_equal "lane must be in 0..=#{(2**64) - 1}", error.message
   end
 
+  # Ready flags are exactly true or false, never truthiness, and the refusal
+  # names the argument the same way for both schedulers that take them.
+  def test_ready_flags_are_exactly_booleans
+    weighted = PM::WeightedRoundRobin.new([1, 1])
+    round_robin = PM::RoundRobin.new
+    [nil, 0, 1, 'true', :true, Object.new].each do |flag|
+      error = assert_raises(TypeError) { weighted.select([true, flag]) }
+      assert_equal 'ready must be true or false', error.message
+      error = assert_raises(TypeError) { round_robin.select([true, flag]) }
+      assert_equal 'ready must be true or false', error.message
+    end
+    assert_equal [0, 1], [weighted.select([true, true]), weighted.select([true, true])]
+    assert_equal 0, round_robin.cursor
+  end
+
+  # A deficit head is nil (an empty lane) or a positive Integer, under the
+  # argument's name.
+  def test_deficit_heads_are_nil_or_positive
+    deficit = PM::DeficitRoundRobin.new([1, 1])
+    error = assert_raises(RangeError) { deficit.select([nil, 0]) }
+    assert_equal 'heads must be in 1..=4294967295', error.message
+    error = assert_raises(TypeError) { deficit.select([nil, false]) }
+    assert_equal 'heads must be an Integer', error.message
+    assert_equal 1, deficit.select([nil, 4_294_967_295])
+  end
+
   def test_only_the_core_operations_are_exposed
     assert_equal %i[cursor select], PM::RoundRobin.public_instance_methods(false).sort
     [PM::WeightedRoundRobin, PM::DeficitRoundRobin].each do |scheduler|

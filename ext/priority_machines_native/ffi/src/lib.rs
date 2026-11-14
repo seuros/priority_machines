@@ -6,10 +6,7 @@ mod scheduler;
 
 use std::time::Duration;
 
-use magnus::{
-    Error, RArray, Ruby, Value,
-    value::{Qfalse, Qtrue},
-};
+use magnus::{Error, RArray, Ruby, Value};
 use matryona_machines::ruby::{exact_array, integer, optional};
 use priority_machines::{Deactivation, Refusal};
 
@@ -24,31 +21,18 @@ pub(crate) fn lane(value: Value) -> Result<usize, Error> {
     integer(value, "lane")
 }
 
-/// Ready flags are real booleans: no truthiness, so `nil` is not "empty".
-pub(crate) fn ready(ruby: &Ruby, value: Value) -> Result<bool, Error> {
-    if Qtrue::from_value(value).is_some() {
-        Ok(true)
-    } else if Qfalse::from_value(value).is_some() {
-        Ok(false)
-    } else {
-        Err(Error::new(
-            ruby.exception_type_error(),
-            "ready entries must be true or false",
-        ))
+matryona_machines::symbols! {
+    /// One symbol per core variant, the snake case of its name.
+    pub(crate) Refusals for Refusal as "a refusal" {
+        UnknownLane => "unknown_lane",
     }
 }
 
-/// One symbol per core variant, the snake case of its name.
-pub(crate) const fn refusal(refusal: Refusal) -> &'static str {
-    match refusal {
-        Refusal::UnknownLane => "unknown_lane",
-    }
-}
-
-pub(crate) const fn deactivation(deactivation: Deactivation) -> &'static str {
-    match deactivation {
-        Deactivation::Deactivated => "deactivated",
-        Deactivation::Idle => "idle",
+matryona_machines::symbols! {
+    /// An honoured deactivate.
+    pub(crate) Deactivations for Deactivation as "a deactivation" {
+        Deactivated => "deactivated",
+        Idle => "idle",
     }
 }
 

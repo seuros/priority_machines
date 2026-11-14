@@ -5,9 +5,9 @@ use std::{cell::RefCell, num::NonZeroU32};
 use magnus::{Error, RModule, Ruby, Symbol, Value, function, method, prelude::*, typed_data::Obj};
 use priority_machines::{Deactivation, DeficitRoundRobin, Refusal, WeightedRoundRobin};
 
-use matryona_machines::ruby::{positive, symbol};
+use matryona_machines::ruby::{Symbols, boolean, optional_positive, positive, symbol};
 
-use crate::{array, deactivation, lane, ready, refusal};
+use crate::{Deactivations, Refusals, array, lane};
 
 // This trait erases const-generic sizes, never adds inactive/phantom lanes.
 trait Policy: Send {
@@ -107,9 +107,8 @@ fn inputs(
     values
         .into_iter()
         .map(|value| match kind {
-            Kind::Weighted => ready(ruby, value).map(|flag| flag.then_some(NonZeroU32::MIN)),
-            Kind::Deficit if value.is_nil() => Ok(None),
-            Kind::Deficit => positive(value, name).map(Some),
+            Kind::Weighted => boolean(value, name).map(|flag| flag.then_some(NonZeroU32::MIN)),
+            Kind::Deficit => optional_positive(value, name),
         })
         .collect()
 }
@@ -140,7 +139,10 @@ macro_rules! wrapper {
                 rb_self.check_frozen()?;
                 let lane = self::lane(lane)?;
                 let outcome = rb_self.0.policy.borrow_mut().deactivate(lane);
-                Ok(symbol(ruby, outcome.map_or_else(refusal, deactivation)))
+                Ok(symbol(
+                    ruby,
+                    outcome.map_or_else(Refusals::name, Deactivations::name),
+                ))
             }
         }
     };

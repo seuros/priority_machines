@@ -3,9 +3,10 @@
 use std::cell::RefCell;
 
 use magnus::{Error, RModule, Ruby, Value, function, method, prelude::*, typed_data::Obj};
+use matryona_machines::ruby::boolean;
 use priority_machines::RoundRobin;
 
-use crate::{array, ready};
+use crate::array;
 
 #[magnus::wrap(class = "PriorityMachines::RoundRobin", free_immediately, size)]
 struct Wrapper(RefCell<RoundRobin>);
@@ -20,7 +21,8 @@ impl Wrapper {
         // Convert the complete call before entering the core.
         let flags = array(ruby, flags, "ready")?
             .into_iter()
-            .map(|value| ready(ruby, value))
+            // Real booleans: no truthiness, so `nil` is not "empty".
+            .map(|value| boolean(value, "ready"))
             .collect::<Result<Vec<_>, _>>()?;
         let selected = rb_self.0.borrow_mut().select(&flags);
         Ok(selected)
