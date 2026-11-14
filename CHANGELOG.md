@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/seuros/priority_machines/compare/priority_machines/v0.5.0...priority_machines/v0.5.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **deps:** require matryona-machines &gt;= 0.4, build the Array refusal message lazily ([d1595f7](https://github.com/seuros/priority_machines/commit/d1595f79f2e157760d0c8b40d55e3f98413f0974))
+
 ## [0.5.0](https://github.com/seuros/priority_machines/compare/priority_machines/v0.4.0...priority_machines/v0.5.0) (2026-11-14)
 
 
