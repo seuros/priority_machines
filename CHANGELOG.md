@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0](https://github.com/seuros/priority_machines/compare/priority_machines/v0.5.1...priority_machines/v0.6.0) (2026-11-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* WRR selects typed Lane with its head; schedulers sealed
+
+### Features
+
+* WRR selects typed Lane with its head; schedulers sealed ([0b09114](https://github.com/seuros/priority_machines/commit/0b09114068e976e2f4e9b6005cb66e9d00b8f4df))
+
 ## [0.5.1](https://github.com/seuros/priority_machines/compare/priority_machines/v0.5.0...priority_machines/v0.5.1) (2026-11-14)
 
 
