@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/seuros/priority_machines/compare/priority_machines/v0.6.0...priority_machines/v0.6.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* fix wrapped classes at load so building a value runs no Ruby ([8bbe272](https://github.com/seuros/priority_machines/commit/8bbe27297d20e068d7c1ec4e97fc8cdec66e8ee6))
+
 ## [0.6.0](https://github.com/seuros/priority_machines/compare/priority_machines/v0.5.1...priority_machines/v0.6.0) (2026-11-16)
 
 
