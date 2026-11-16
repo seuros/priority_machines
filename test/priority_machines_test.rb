@@ -121,11 +121,26 @@ class PriorityMachinesTest < Minitest::Test
     assert_equal 0, PM.earliest_deadline([0, 0])
   end
 
+  # Rust's `Duration::MAX`, in nanoseconds: the latest deadline the core holds.
+  DURATION_MAX = ((2**64) - 1) * 1_000_000_000 + 999_999_999
+
+  # Bug: a deadline past 2**64-1 (batch's `deadline`, dedup's `expires`, up to
+  # Duration::MAX) raised RangeError instead of being ordered.
+  def test_every_sibling_instant_is_a_deadline
+    assert_equal 1, PM.earliest_deadline([2**64, (2**64) - 1])
+    assert_equal 0, PM.earliest_deadline([2**64, 2**64 + 1])
+    assert_equal 1, PM.earliest_deadline([DURATION_MAX, DURATION_MAX - 1, nil])
+    assert_equal 0, PM.earliest_deadline([DURATION_MAX, DURATION_MAX])
+    assert_equal 2, PM.earliest_deadline([DURATION_MAX, nil, 0])
+    error = assert_raises(RangeError) { PM.earliest_deadline([0, DURATION_MAX + 1]) }
+    assert_equal 'deadlines must be in 0..=Duration::MAX nanoseconds', error.message
+  end
+
   def test_deadlines_are_never_floats_or_seconds
     [1.0, 0.25, Float::NAN, Float::INFINITY, -0.1, '1', true, Object.new].each do |value|
       assert_raises(TypeError) { PM.earliest_deadline([value]) }
     end
-    [-1, 2**64].each do |value|
+    [-1, DURATION_MAX + 1].each do |value|
       assert_raises(RangeError) { PM.earliest_deadline([value]) }
     end
     assert_raises(TypeError) { PM.earliest_deadline(nil) }

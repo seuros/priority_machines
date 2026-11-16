@@ -20,9 +20,11 @@ module PriorityMachines
   # progress), and nothing changed.
   type deactivation = :deactivated | :idle
 
-  # Deadlines are Integer nanoseconds on one monotonic clock, 0..2**64-1, or
-  # nil for a lane with nothing: TypeError for a Float or any other
-  # non-Integer, RangeError outside the range. Never refuses: the lane with
+  # Deadlines are Integer nanoseconds on one monotonic clock, over the whole
+  # Rust Duration range 0..Duration::MAX (past 2**64-1 included, so every
+  # instant a sibling gem answers as `now + span` orders here), or nil for a
+  # lane with nothing: TypeError for a Float or any other non-Integer,
+  # RangeError outside the range. Never refuses: the lane with
   # the earliest deadline (lowest index on a tie), or nil when none has one.
   def self.earliest_deadline: (Array[Integer?] deadlines) -> Integer?
 
