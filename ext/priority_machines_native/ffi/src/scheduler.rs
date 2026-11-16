@@ -5,7 +5,9 @@ use std::{cell::RefCell, num::NonZeroU32};
 use magnus::{Error, RModule, Ruby, Symbol, Value, function, method, prelude::*, typed_data::Obj};
 use priority_machines::{Deactivation, DeficitRoundRobin, Lane, Refusal, WeightedRoundRobin};
 
-use matryona_machines::ruby::{Symbols, boolean, optional_positive, positive, sized, symbol};
+use matryona_machines::ruby::{
+    Class, Symbols, boolean, optional_positive, positive, sized, symbol,
+};
 
 use crate::{Deactivations, Refusals, array, lane};
 
@@ -159,6 +161,8 @@ pub fn define(ruby: &Ruby, module: RModule) -> Result<(), Error> {
             class.define_singleton_method("new", function!($type::new, 1))?;
             class.define_method("select", method!($type::select, 1))?;
             class.define_method("deactivate", method!($type::deactivate, 1))?;
+            // `new` answers a $type: fix its class now, so building one runs no Ruby.
+            Class::pin_wrapped::<$type>(ruby, class)?;
         }};
     }
     register!(Weighted, "WeightedRoundRobin");

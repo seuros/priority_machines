@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 
 use magnus::{Error, RModule, Ruby, Value, function, method, prelude::*, typed_data::Obj};
-use matryona_machines::ruby::boolean;
+use matryona_machines::ruby::{Class, boolean};
 use priority_machines::RoundRobin;
 
 use crate::array;
@@ -38,5 +38,7 @@ pub fn define(ruby: &Ruby, module: RModule) -> Result<(), Error> {
     class.undef_default_alloc_func();
     class.define_singleton_method("new", function!(Wrapper::new, 0))?;
     class.define_method("select", method!(Wrapper::select, 1))?;
-    class.define_method("cursor", method!(Wrapper::cursor, 0))
+    class.define_method("cursor", method!(Wrapper::cursor, 0))?;
+    // `new` answers a Wrapper: fix its class now, so building one runs no Ruby.
+    Class::pin_wrapped::<Wrapper>(ruby, class).map(drop)
 }
