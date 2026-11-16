@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/seuros/priority_machines/compare/priority_machines/v0.6.1...priority_machines/v0.6.2) (2026-11-16)
+
+
+### Bug Fixes
+
+* order every sibling instant as a deadline ([774eee5](https://github.com/seuros/priority_machines/commit/774eee5cd29bc27963d7901f91fe006765b19d16))
+
 ## [0.6.1](https://github.com/seuros/priority_machines/compare/priority_machines/v0.6.0...priority_machines/v0.6.1) (2026-11-16)
 
 
