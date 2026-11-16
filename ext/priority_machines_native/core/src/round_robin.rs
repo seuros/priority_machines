@@ -25,15 +25,32 @@ impl RoundRobin {
         if lanes == 0 {
             return None;
         }
-        let mut lane = self.cursor % lanes;
-        let mut visited = 0;
-        while visited < lanes {
-            if ready[lane] {
+        // Search `start..lanes`, then wrap to `0..start`.
+        let start = self.cursor % lanes;
+        let Some((before, after)) = ready.split_at_checked(start) else {
+            debug_assert!(false, "start is below lanes");
+            return None;
+        };
+        let mut lane = start;
+        let mut rest = after;
+        // `lane` counts the entries consumed, so it stays below `lanes`.
+        while let [here, tail @ ..] = rest {
+            if *here {
                 self.cursor = crate::next_lane(lane, lanes);
                 return Some(lane);
             }
-            lane = crate::next_lane(lane, lanes);
-            visited += 1;
+            lane += 1;
+            rest = tail;
+        }
+        lane = 0;
+        rest = before;
+        while let [here, tail @ ..] = rest {
+            if *here {
+                self.cursor = crate::next_lane(lane, lanes);
+                return Some(lane);
+            }
+            lane += 1;
+            rest = tail;
         }
         None
     }

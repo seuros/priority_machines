@@ -41,11 +41,14 @@ fn an_empty_round_clears_credit_ends_the_visit_and_keeps_the_cursor() {
     let mut expected = scheduler.clone();
     expected.deficits = [0; 2];
     expected.needs_quantum = true;
-    assert_eq!(scheduler.select(&[None; 2]), None);
+    assert_eq!(scheduler.select(&[None::<NonZeroU32>; 2]), None);
     assert_eq!(scheduler, expected);
 
     // Nothing is left to record: the next empty round changes nothing.
-    assert_eq!(unchanged(&mut scheduler, |s| s.select(&[None; 2])), None);
+    assert_eq!(
+        unchanged(&mut scheduler, |s| s.select(&[None::<NonZeroU32>; 2])),
+        None
+    );
 
     // Lane 1 is still next, and it is paid a fresh quantum, not the old credit.
     assert_eq!(scheduler.select(&[Some(units(3)); 2]), Some(1));

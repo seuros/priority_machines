@@ -1,13 +1,29 @@
 use super::*;
+use crate::Refusal;
 use crate::test_support::{Tally, below, index, nonzero as weight};
-use matryona_machines::testing::{XorShift64, refuses, unchanged};
+use matryona_machines::testing::{XorShift64, describes, unchanged};
+
+/// Select over bare readiness and answer the lane index.
+fn pick<const N: usize>(scheduler: &mut WeightedRoundRobin<N>, ready: &[bool; N]) -> Option<usize> {
+    scheduler
+        .select(&ready.map(|ready| ready.then_some(())))
+        .map(|(lane, ())| lane.get())
+}
+
+/// One of the scheduler's lanes; an index of `N` or more is a broken test.
+fn lane<const N: usize>(index: usize) -> Lane<N> {
+    let Ok(lane) = Lane::new(index) else {
+        panic!("test lanes are below N");
+    };
+    lane
+}
 
 /// Run `steps` against a fresh scheduler and answer its remaining burst.
 fn replay<const N: usize>(weights: [u32; N], steps: &[([bool; N], Option<usize>)]) -> u32 {
     let mut scheduler = WeightedRoundRobin::new(weights.map(weight));
     for (index, (ready, expected)) in steps.iter().enumerate() {
         assert_eq!(
-            scheduler.select(ready),
+            pick(&mut scheduler, ready),
             *expected,
             "{weights:?} step {index}"
         );
@@ -42,25 +58,23 @@ fn scripted_selections_serve_bursts_and_forfeit_idle_turns() {
 #[test]
 fn deactivation_relinquishes_a_partial_burst() {
     let mut scheduler = WeightedRoundRobin::new([weight(3), weight(1)]);
-    assert_eq!(scheduler.select(&[true; 2]), Some(0));
-    assert_eq!(scheduler.deactivate(0), Ok(Deactivation::Deactivated));
-    assert_eq!(scheduler.select(&[true; 2]), Some(1));
-    refuses(&mut scheduler, Refusal::UnknownLane, |s| s.deactivate(2));
-    refuses(&mut scheduler, Refusal::UnknownLane, |s| {
-        s.deactivate(usize::MAX)
-    });
+    assert_eq!(pick(&mut scheduler, &[true; 2]), Some(0));
+    assert_eq!(scheduler.deactivate(lane(0)), Deactivation::Deactivated);
+    assert_eq!(pick(&mut scheduler, &[true; 2]), Some(1));
+    assert_eq!(Lane::<2>::new(2), Err(Refusal::UnknownLane));
+    assert_eq!(Lane::<2>::new(usize::MAX), Err(Refusal::UnknownLane));
 }
 
 #[test]
 fn zero_lanes_and_maximum_weight_are_supported() {
     let mut empty = WeightedRoundRobin::new([]);
-    assert_eq!(empty.select(&[]), None);
-    assert_eq!(empty.deactivate(0), Err(Refusal::UnknownLane));
+    assert_eq!(pick(&mut empty, &[]), None);
+    assert_eq!(Lane::<0>::new(0), Err(Refusal::UnknownLane));
 
     let mut single = WeightedRoundRobin::new([weight(u32::MAX)]);
-    assert_eq!(single.select(&[true]), Some(0));
+    assert_eq!(pick(&mut single, &[true]), Some(0));
     assert_eq!(single.remaining, u32::MAX - 1);
-    assert_eq!(single.select(&[false]), None);
+    assert_eq!(pick(&mut single, &[false]), None);
     assert_eq!(single.remaining, u32::MAX);
 }
 
@@ -71,7 +85,7 @@ fn full_cycles_match_weight_ratios() {
             let mut scheduler = WeightedRoundRobin::new([weight(first), weight(second)]);
             let mut counts = [0; 2];
             for _ in 0..10 * (first + second) {
-                let Some(lane) = scheduler.select(&[true; 2]) else {
+                let Some(lane) = pick(&mut scheduler, &[true; 2]) else {
                     panic!("both lanes are ready");
                 };
                 counts[lane] += 1;
@@ -84,46 +98,43 @@ fn full_cycles_match_weight_ratios() {
 #[test]
 fn a_repeated_deactivation_is_honoured_and_changes_nothing() {
     let mut scheduler = WeightedRoundRobin::new([weight(3), weight(2)]);
-    assert_eq!(scheduler.select(&[true; 2]), Some(0));
-    assert_eq!(scheduler.deactivate(0), Ok(Deactivation::Deactivated));
+    assert_eq!(pick(&mut scheduler, &[true; 2]), Some(0));
+    assert_eq!(scheduler.deactivate(lane(0)), Deactivation::Deactivated);
     assert_eq!(
-        unchanged(&mut scheduler, |s| s.deactivate(0)),
-        Ok(Deactivation::Idle)
+        unchanged(&mut scheduler, |s| s.deactivate(lane(0))),
+        Deactivation::Idle
     );
 
     // An only lane with an untouched burst holds nothing to give up.
     let mut single = WeightedRoundRobin::new([weight(2)]);
     let fresh = single.clone();
     assert_eq!(
-        unchanged(&mut single, |s| s.deactivate(0)),
-        Ok(Deactivation::Idle)
+        unchanged(&mut single, |s| s.deactivate(lane(0))),
+        Deactivation::Idle
     );
-    assert_eq!(single.select(&[true]), Some(0));
-    assert_eq!(single.deactivate(0), Ok(Deactivation::Deactivated));
+    assert_eq!(pick(&mut single, &[true]), Some(0));
+    assert_eq!(single.deactivate(lane(0)), Deactivation::Deactivated);
     assert_eq!(single, fresh);
 }
 
 #[test]
 fn nothing_ready_forfeits_the_burst_and_keeps_the_cursor() {
     let mut scheduler = WeightedRoundRobin::new([weight(3), weight(2)]);
-    assert_eq!(scheduler.select(&[true; 2]), Some(0));
-    assert_eq!(scheduler.select(&[false, true]), Some(1));
+    assert_eq!(pick(&mut scheduler, &[true; 2]), Some(0));
+    assert_eq!(pick(&mut scheduler, &[false, true]), Some(1));
     let mut expected = scheduler.clone();
     expected.remaining = 2;
-    assert_eq!(scheduler.select(&[false; 2]), None);
+    assert_eq!(pick(&mut scheduler, &[false; 2]), None);
     assert_eq!(scheduler, expected);
-    assert_eq!(unchanged(&mut scheduler, |s| s.select(&[false; 2])), None);
+    assert_eq!(unchanged(&mut scheduler, |s| pick(s, &[false; 2])), None);
 }
 
 #[test]
 fn refusals_describe_themselves() {
-    extern crate std;
-    use std::string::ToString;
-
-    assert_eq!(
-        Refusal::UnknownLane.to_string(),
-        "lane index is not one of the scheduler's lanes"
-    );
+    describes(&[(
+        Refusal::UnknownLane,
+        "lane index is not one of the scheduler's lanes",
+    )]);
 }
 
 /// Textbook burst WRR, kept apart from the implementation's bookkeeping.
@@ -183,13 +194,13 @@ fn randomized_trace_matches_a_reference_model() {
         let before = scheduler.clone();
         if below(&mut rng, 4) == 0 {
             let lane = index(&mut rng, 5);
-            let outcome = scheduler.deactivate(lane);
+            let outcome = Lane::new(lane).map(|lane| scheduler.deactivate(lane));
             assert_eq!(outcome, model.deactivate(lane));
             tally.record(outcome, &scheduler, &before);
         } else {
             let bits = below(&mut rng, 8);
             let ready = core::array::from_fn(|lane| bits >> lane & 1 == 1);
-            assert_eq!(scheduler.select(&ready), model.select(ready));
+            assert_eq!(pick(&mut scheduler, &ready), model.select(ready));
         }
         assert_eq!(scheduler.cursor, model.lane);
         assert_eq!(scheduler.remaining, model.left);
@@ -200,13 +211,120 @@ fn randomized_trace_matches_a_reference_model() {
 #[test]
 fn deactivating_lanes_that_hold_nothing_never_moves_the_cursor() {
     let mut scheduler = WeightedRoundRobin::new([weight(3), weight(2)]);
-    for lane in [0, 0, 1, 0, 1, 1] {
+    for at in [0, 0, 1, 0, 1, 1] {
         assert_eq!(
-            unchanged(&mut scheduler, |s| s.deactivate(lane)),
-            Ok(Deactivation::Idle)
+            unchanged(&mut scheduler, |s| s.deactivate(lane(at))),
+            Deactivation::Idle
         );
     }
     // The lane under the cursor kept its place and its whole burst.
-    let turns: [_; 3] = core::array::from_fn(|_| scheduler.select(&[true; 2]));
+    let turns: [_; 3] = core::array::from_fn(|_| pick(&mut scheduler, &[true; 2]));
     assert_eq!(turns, [Some(0); 3]);
+}
+
+/// The scheduler as it was before `select` read heads and answered a typed
+/// lane: bare readiness in, a bare index out, and a `deactivate` that refuses
+/// an index of `N` or more. Kept verbatim so the new shape is proven to
+/// schedule exactly as the old one did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Before<const N: usize> {
+    weights: [NonZeroU32; N],
+    cursor: usize,
+    remaining: u32,
+}
+
+impl<const N: usize> Before<N> {
+    const fn new(weights: [NonZeroU32; N]) -> Self {
+        Self {
+            remaining: if N == 0 { 0 } else { weights[0].get() },
+            weights,
+            cursor: 0,
+        }
+    }
+
+    fn select(&mut self, ready: &[bool; N]) -> Option<usize> {
+        for _ in 0..N {
+            let lane = self.cursor;
+            if ready[lane] {
+                self.remaining -= 1;
+                if self.remaining == 0 {
+                    self.advance();
+                }
+                return Some(lane);
+            }
+            self.advance();
+        }
+        None
+    }
+
+    const fn deactivate(&mut self, lane: usize) -> Result<Deactivation, Refusal> {
+        if lane >= N {
+            return Err(Refusal::UnknownLane);
+        }
+        if !(lane == self.cursor && self.remaining < self.weights[lane].get()) {
+            return Ok(Deactivation::Idle);
+        }
+        self.advance();
+        Ok(Deactivation::Deactivated)
+    }
+
+    const fn advance(&mut self) {
+        self.cursor = crate::next_lane(self.cursor, N);
+        self.remaining = self.weights[self.cursor].get();
+    }
+}
+
+/// A head that knows whether it is the last of its lane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Tail(bool);
+
+impl Ready for Tail {
+    fn last(self) -> bool {
+        self.0
+    }
+}
+
+/// Drive the new and the old scheduler with the same random calls: every
+/// selection, with a last head followed on the old one by the `deactivate`
+/// an adapter used to make, and every explicit deactivation must agree in
+/// answer and in state.
+fn matches_the_old_scheduler<const N: usize>(rng: &mut XorShift64) {
+    let weights = [0; N].map(|_| weight(1 + below(rng, 4)));
+    let mut now = WeightedRoundRobin::new(weights);
+    let mut before = Before::new(weights);
+    for _ in 0..64 {
+        if below(rng, 5) == 0 {
+            let at = index(rng, 5);
+            assert_eq!(
+                Lane::<N>::new(at).map(|lane| now.deactivate(lane)),
+                before.deactivate(at)
+            );
+        } else {
+            let heads: [Option<Tail>; N] =
+                core::array::from_fn(|_| (below(rng, 3) != 0).then(|| Tail(below(rng, 3) == 0)));
+            let selected = now.select(&heads);
+            let old = before.select(&heads.map(|head| head.is_some()));
+            assert_eq!(selected.map(|(lane, _)| lane.get()), old);
+            if let Some((lane, head)) = selected {
+                assert_eq!(Some(head), heads[lane.get()]);
+                if head.last() {
+                    assert!(before.deactivate(lane.get()).is_ok());
+                }
+            }
+        }
+        assert_eq!(
+            (now.cursor, now.remaining),
+            (before.cursor, before.remaining)
+        );
+    }
+}
+
+#[test]
+fn heads_and_typed_lanes_schedule_exactly_as_bare_readiness_did() {
+    let mut rng = XorShift64::new(0x0dd5_eed5);
+    for _ in 0..2_000 {
+        matches_the_old_scheduler::<1>(&mut rng);
+        matches_the_old_scheduler::<2>(&mut rng);
+        matches_the_old_scheduler::<4>(&mut rng);
+    }
 }

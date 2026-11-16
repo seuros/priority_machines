@@ -77,14 +77,14 @@ fn idle_and_zero_lane_schedulers_select_nothing() {
     let mut scheduler = DeficitRoundRobin::new([units(5), units(2)]);
     assert_eq!(scheduler.select(&[Some(units(2)); 2]), Some(0));
     for _ in 0..10 {
-        assert_eq!(scheduler.select(&[None; 2]), None);
+        assert_eq!(scheduler.select(&[None::<NonZeroU32>; 2]), None);
         assert_eq!(scheduler.deficits, [0; 2]);
     }
     assert_eq!(scheduler.select(&[Some(units(5)), None]), Some(0));
     assert_eq!(scheduler.deficits, [0; 2]);
 
     let mut empty = DeficitRoundRobin::new([]);
-    assert_eq!(empty.select(&[]), None);
+    assert_eq!(empty.select::<NonZeroU32>(&[]), None);
     assert_eq!(empty.deactivate(0), Err(Refusal::UnknownLane));
 }
 
@@ -180,6 +180,44 @@ fn optimized_round_skipping_matches_textbook_drr() {
                     }
                 }
             }
+        }
+    }
+}
+
+/// A head that knows whether it is the last of its lane.
+#[derive(Debug, Clone, Copy)]
+struct Tail(NonZeroU32, bool);
+
+impl Head for Tail {
+    fn cost(self) -> NonZeroU32 {
+        self.0
+    }
+
+    fn last(self) -> bool {
+        self.1
+    }
+}
+
+#[test]
+fn a_last_head_deactivates_its_lane_as_deactivate_would() {
+    let mut rng = XorShift64::new(0x7a11);
+    for _ in 0..2_000 {
+        let quanta = [0; 3].map(|_| units(1 + below(&mut rng, 6)));
+        let mut told = DeficitRoundRobin::new(quanta);
+        let mut asked = told.clone();
+        for _ in 0..12 {
+            let heads: [Option<Tail>; 3] = core::array::from_fn(|_| {
+                (below(&mut rng, 4) != 0)
+                    .then(|| Tail(units(1 + below(&mut rng, 9)), below(&mut rng, 3) == 0))
+            });
+            let selected = told.select(&heads);
+            assert_eq!(asked.select(&heads.map(|h| h.map(Tail::cost))), selected);
+            if let Some(lane) = selected
+                && heads[lane].is_some_and(Tail::last)
+            {
+                assert_eq!(asked.deactivate(lane), Ok(Deactivation::Deactivated));
+            }
+            assert_eq!(told, asked);
         }
     }
 }

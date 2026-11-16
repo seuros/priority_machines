@@ -213,6 +213,7 @@ A call that is honoured answers with a value. A call that is not honoured answer
 - **Bad input changes nothing.** The whole call is checked before any lane state moves. Wrong type is `TypeError`, a value the core does not accept is `RangeError`, and the message names the argument (`weights must be an Integer`). `ArgumentError` only ever comes from Ruby itself, for arity. After the core has answered, the binding only hands back the index or symbol, so a raise never costs a turn.
 - **No answer records a clock.** No scheduler takes one, and `earliest_deadline` is stateless.
 - **Frozen means frozen.** `freeze` a scheduler and `select` and `deactivate` raise `FrozenError`.
+- **Sealed.** The scheduler classes wrap native state: there is no `allocate`, and subclassing any of them raises `TypeError`.
 
 ## What You Think You're Doing vs Reality
 

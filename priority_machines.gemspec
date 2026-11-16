@@ -7,9 +7,9 @@ Gem::Specification.new do |spec|
   spec.version = PriorityMachines::VERSION
   spec.authors = ['Abdelkader Boudih']
   spec.email = ['oss@seuros.com']
-  spec.summary = 'Native deadline, weighted and deficit scheduling policies'
-  spec.description = 'Thin Ruby binding to the standalone allocation-free priority-machines Rust core. ' \
-                     'Initial, unstable local implementation; caller owns queues and execution.'
+  spec.summary = 'Deadline, round robin, weighted and deficit scheduling decisions for Ruby'
+  spec.description = 'Allocation-free EDF, round robin, weighted round robin and deficit round robin pickers ' \
+                     'bound from the priority-machines crate. The caller owns queues and execution.'
   spec.homepage = 'https://github.com/seuros/priority_machines'
   spec.license = 'MIT'
   spec.required_ruby_version = '>= 4.0.0'

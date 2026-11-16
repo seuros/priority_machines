@@ -56,3 +56,23 @@ fn scripted_selections_follow_the_cursor() {
         assert_eq!(scheduler.cursor(), cursor);
     }
 }
+
+#[test]
+fn every_cursor_and_ready_view_matches_a_wrapping_scan() {
+    for lanes in 1..=5_usize {
+        for mask in 0..(1_u32 << lanes) {
+            let ready: [bool; 5] = core::array::from_fn(|lane| mask & (1 << lane) != 0);
+            let ready = &ready[..lanes];
+            for cursor in 0..=2 * lanes {
+                let start = cursor % lanes;
+                let expected = (0..lanes)
+                    .map(|step| (start + step) % lanes)
+                    .find(|&lane| ready[lane]);
+                let mut scheduler = RoundRobin { cursor };
+                assert_eq!(scheduler.select(ready), expected, "{ready:?} at {cursor}");
+                let after = expected.map_or(cursor, |lane| (lane + 1) % lanes);
+                assert_eq!(scheduler.cursor(), after, "{ready:?} at {cursor}");
+            }
+        }
+    }
+}

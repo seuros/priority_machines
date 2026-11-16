@@ -2,6 +2,31 @@ use core::num::NonZeroU32;
 
 use crate::{Deactivation, Refusal};
 
+/// The head of a lane, as [`DeficitRoundRobin::select`] reads it.
+///
+/// A bare `NonZeroU32` is a head that costs that much and never says its
+/// lane empties: call [`DeficitRoundRobin::deactivate`] when the lane drains.
+/// An adapter that knows a head is the last of its lane says so with
+/// [`Head::last`], and selecting it deactivates the lane in the same call,
+/// with no index to pass back and no second call that could be refused.
+pub trait Head: Copy {
+    /// What dispatching this head charges against its lane's credit.
+    fn cost(self) -> NonZeroU32;
+
+    /// Whether dispatching this head empties its lane.
+    fn last(self) -> bool;
+}
+
+impl Head for NonZeroU32 {
+    fn cost(self) -> NonZeroU32 {
+        self
+    }
+
+    fn last(self) -> bool {
+        false
+    }
+}
+
 /// Deficit round robin over fixed, caller-owned lanes with explicit head costs.
 ///
 /// Positive quanta and costs use the same unit. Empty lanes lose their credit.
@@ -38,7 +63,12 @@ impl<const N: usize> DeficitRoundRobin<N> {
     /// zero, and the visit in progress ends, so the lane under the cursor is
     /// paid a fresh quantum when it is next visited. The cursor stays where
     /// it was, and a second `None` in a row changes nothing.
-    pub fn select(&mut self, heads: &[Option<NonZeroU32>; N]) -> Option<usize> {
+    ///
+    /// A selected head whose [`Head::last`] is `true` empties its lane: the
+    /// lane is deactivated before `select` returns, exactly as
+    /// [`Self::deactivate`] would, so its leftover credit is gone and the
+    /// cursor moves on.
+    pub fn select<H: Head>(&mut self, heads: &[Option<H>; N]) -> Option<usize> {
         // Observe every empty lane, even if selection stops before visiting it.
         for (deficit, head) in self.deficits.iter_mut().zip(heads) {
             if head.is_none() {
@@ -51,20 +81,24 @@ impl<const N: usize> DeficitRoundRobin<N> {
 
         // Every active head is now unaffordable and every lane has been visited.
         // Skip only whole rounds in which no head could have been dispatched.
+        // The failed round left every active lane with `deficit < cost`, so
+        // the subtraction cannot wrap and `rounds >= 1`. `skipped` is below
+        // every active lane's own round count, so `deficit + skipped *
+        // quantum` stays below that lane's `cost <= u32::MAX`: no overflow.
         let rounds = heads
             .iter()
-            .enumerate()
-            .filter_map(|(lane, head)| {
-                head.map(|cost| {
-                    (u64::from(cost.get()) - self.deficits[lane])
-                        .div_ceil(u64::from(self.quanta[lane].get()))
+            .zip(&self.deficits)
+            .zip(&self.quanta)
+            .filter_map(|((head, deficit), quantum)| {
+                head.map(|head| {
+                    (u64::from(head.cost().get()) - deficit).div_ceil(u64::from(quantum.get()))
                 })
             })
             .min()?;
         let skipped = rounds - 1;
-        for (lane, head) in heads.iter().enumerate() {
+        for ((deficit, head), quantum) in self.deficits.iter_mut().zip(heads).zip(&self.quanta) {
             if head.is_some() {
-                self.deficits[lane] += skipped * u64::from(self.quanta[lane].get());
+                *deficit += skipped * u64::from(quantum.get());
             }
         }
         self.select_round(heads)
@@ -87,32 +121,47 @@ impl<const N: usize> DeficitRoundRobin<N> {
     ///
     /// [`Refusal::UnknownLane`] for an index of `N` or more; nothing changes.
     pub const fn deactivate(&mut self, lane: usize) -> Result<Deactivation, Refusal> {
-        if lane >= N {
-            return Err(Refusal::UnknownLane);
-        }
         let mid_visit = lane == self.cursor && !self.needs_quantum;
-        if self.deficits[lane] == 0 && !mid_visit {
+        // The lookup is the bounds check: an index of `N` or more has no deficit.
+        let Some(deficit) = crate::entry_mut(&mut self.deficits, lane) else {
+            return Err(Refusal::UnknownLane);
+        };
+        if *deficit == 0 && !mid_visit {
             return Ok(Deactivation::Idle);
         }
-        self.deficits[lane] = 0;
+        *deficit = 0;
         if mid_visit {
             self.advance();
         }
         Ok(Deactivation::Deactivated)
     }
 
-    fn select_round(&mut self, heads: &[Option<NonZeroU32>; N]) -> Option<usize> {
+    fn select_round<H: Head>(&mut self, heads: &[Option<H>; N]) -> Option<usize> {
         for _ in 0..N {
             let lane = self.cursor;
-            if let Some(cost) = heads[lane] {
+            let (Some(head), Some(deficit), Some(quantum)) = (
+                heads.get(lane),
+                self.deficits.get_mut(lane),
+                self.quanta.get(lane),
+            ) else {
+                debug_assert!(false, "the cursor is one of the N lanes");
+                return None;
+            };
+            if let Some(head) = *head {
+                let cost = head.cost();
                 if self.needs_quantum {
                     // An unsuccessful visit leaves deficit < cost <= u32::MAX.
                     // Adding a u32 quantum therefore cannot overflow u64.
-                    self.deficits[lane] += u64::from(self.quanta[lane].get());
+                    *deficit += u64::from(quantum.get());
                     self.needs_quantum = false;
                 }
-                if self.deficits[lane] >= u64::from(cost.get()) {
-                    self.deficits[lane] -= u64::from(cost.get());
+                if *deficit >= u64::from(cost.get()) {
+                    *deficit -= u64::from(cost.get());
+                    if head.last() {
+                        // The lane is mid-visit: it was just paid and charged.
+                        *deficit = 0;
+                        self.advance();
+                    }
                     return Some(lane);
                 }
             }

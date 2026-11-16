@@ -3,9 +3,9 @@
 use std::{cell::RefCell, num::NonZeroU32};
 
 use magnus::{Error, RModule, Ruby, Symbol, Value, function, method, prelude::*, typed_data::Obj};
-use priority_machines::{Deactivation, DeficitRoundRobin, Refusal, WeightedRoundRobin};
+use priority_machines::{Deactivation, DeficitRoundRobin, Lane, Refusal, WeightedRoundRobin};
 
-use matryona_machines::ruby::{Symbols, boolean, optional_positive, positive, symbol};
+use matryona_machines::ruby::{Symbols, boolean, optional_positive, positive, sized, symbol};
 
 use crate::{Deactivations, Refusals, array, lane};
 
@@ -17,10 +17,11 @@ trait Policy: Send {
 
 impl<const N: usize> Policy for WeightedRoundRobin<N> {
     fn select(&mut self, heads: &[Option<NonZeroU32>]) -> Option<usize> {
-        self.select(&std::array::from_fn(|index| heads[index].is_some()))
+        self.select(&std::array::from_fn(|index| heads[index].map(|_| ())))
+            .map(|(lane, ())| lane.get())
     }
     fn deactivate(&mut self, lane: usize) -> Result<Deactivation, Refusal> {
-        self.deactivate(lane)
+        Lane::new(lane).map(|lane| self.deactivate(lane))
     }
 }
 
@@ -58,25 +59,24 @@ fn make(ruby: &Ruby, values: Value, kind: Kind) -> Result<State, Error> {
         .into_iter()
         .map(|value| positive(value, name))
         .collect::<Result<Vec<_>, _>>()?;
-    macro_rules! sized {
-        ($($n:literal),*) => {
-            match values.len() {
-                $($n => {
-                    let array = std::array::from_fn::<_, $n, _>(|index| values[index]);
-                    let policy: Box<dyn Policy> = match kind {
-                        Kind::Weighted => Box::new(WeightedRoundRobin::new(array)),
-                        Kind::Deficit => Box::new(DeficitRoundRobin::new(array)),
-                    };
-                    policy
-                },)*
-                _ => return Err(Error::new(
-                    ruby.exception_range_error(),
-                    format!("{name} holds at most {MAX_LANES} lanes"),
-                )),
-            }
-        };
-    }
-    let policy = sized!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+    let policy = sized!(
+        values.len(),
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+        |N| {
+            let array = std::array::from_fn::<_, N, _>(|index| values[index]);
+            let policy: Box<dyn Policy> = match kind {
+                Kind::Weighted => Box::new(WeightedRoundRobin::new(array)),
+                Kind::Deficit => Box::new(DeficitRoundRobin::new(array)),
+            };
+            policy
+        },
+        _ => {
+            return Err(Error::new(
+                ruby.exception_range_error(),
+                format!("{name} holds at most {MAX_LANES} lanes"),
+            ));
+        },
+    );
     Ok(State {
         policy: RefCell::new(policy),
         lanes: values.len(),

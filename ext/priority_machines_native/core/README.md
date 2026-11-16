@@ -7,7 +7,8 @@ Engine-room flight manual: order departures by deadline, weight, or accounted co
 Allocation-free scheduling policies. No threads, I/O, wall clock, queue storage,
 allocator, or dependencies. The crate is always `no_std`.
 
-The caller supplies a view of eligible work; the scheduler returns an index.
+The caller supplies a view of eligible work; the scheduler returns an index
+(WRR returns a typed `Lane` and the selected head).
 A successful selection **consumes a scheduling turn or cost credit**. Serialize
 selection with dequeue/admission in your adapter: this is not a reservation or
 an execution guarantee. Filter blocked and cancelled work before selecting.
@@ -62,7 +63,9 @@ let mut scheduler = WeightedRoundRobin::new([
     NonZeroU32::MIN,
 ]);
 assert_eq!(
-    core::array::from_fn::<_, 6, _>(|_| scheduler.select(&[true, true])),
+    core::array::from_fn::<_, 6, _>(|_| {
+        scheduler.select(&[Some(()), Some(())]).map(|(lane, ())| lane.get())
+    }),
     [Some(0), Some(0), Some(1), Some(0), Some(0), Some(1)],
 );
 # Some(())
@@ -76,6 +79,14 @@ bytes or CPU time. Unready lanes forfeit unused turns; idle lanes cannot bank
 turns. Zero lanes are supported and select nothing. A `None` (nothing ready)
 still ends the visit in progress: that lane's burst starts over at full
 weight. The cursor does not move, and a second `None` changes nothing.
+
+A ready lane is a `Some` head; `()` is a head that says nothing more.
+`select` answers the selected lane as a `Lane<N>`, an index proven to be one
+of the `N` lanes, together with its head, so an adapter that presents its own
+work as heads has nothing to look up. An adapter that knows which head is the
+last of its lane presents its own `Ready` type: `select` then gives up the
+rest of that lane's burst in the same call when a selected head's `last()` is
+`true`, exactly as `deactivate` would.
 
 ## Deficit Round Robin
 
@@ -106,7 +117,10 @@ must use the same unit, such as bytes or estimated work units.
 Pass the current head cost for each lane, or `None` for an empty lane, on every
 selection. Update your queues after dispatch. When a lane drains or is removed,
 call `deactivate(lane)` **before refilling it** so old credit cannot leak into a
-new busy period. Empty lanes observed during selection also lose their credit.
+new busy period. An adapter that knows which head is the last of its lane can
+present heads as its own `Head` type instead of bare costs: `select` then
+deactivates the lane of a selected head whose `last()` is `true` in the same
+call, exactly as `deactivate` would. Empty lanes observed during selection also lose their credit.
 WRR exposes the same lifecycle hook to relinquish unused turns immediately.
 
 `select` answers `None` exactly when every lane is empty. That is an honoured
@@ -128,15 +142,17 @@ share; this core does not measure or preempt work.
 
 ```rust
 use core::num::NonZeroU32;
-use priority_machines::{Deactivation, Refusal, WeightedRoundRobin};
+use priority_machines::{Deactivation, Lane, Refusal, WeightedRoundRobin};
 
 # fn example() -> Option<()> {
 let mut scheduler = WeightedRoundRobin::new([NonZeroU32::new(3)?, NonZeroU32::MIN]);
-assert_eq!(scheduler.select(&[true, true]), Some(0));
-assert_eq!(scheduler.deactivate(0), Ok(Deactivation::Deactivated));
-assert_eq!(scheduler.deactivate(0), Ok(Deactivation::Idle));
-assert_eq!(scheduler.deactivate(2), Err(Refusal::UnknownLane));
-assert_eq!(scheduler.select(&[true, true]), Some(1));
+let (lane, ()) = scheduler.select(&[Some(()), Some(())])?;
+assert_eq!(lane.get(), 0);
+assert_eq!(scheduler.deactivate(lane), Deactivation::Deactivated);
+assert_eq!(scheduler.deactivate(lane), Deactivation::Idle);
+assert_eq!(Lane::<2>::new(2), Err(Refusal::UnknownLane));
+let (lane, ()) = scheduler.select(&[Some(()), Some(())])?;
+assert_eq!(lane, Lane::new(1).ok()?);
 # Some(())
 # }
 # assert_eq!(example(), Some(()));
@@ -145,15 +161,17 @@ assert_eq!(scheduler.select(&[true, true]), Some(1));
 ## Contract
 
 - **Refusals.** `Refusal` is the crate's only refusal type and has one
-  variant: `UnknownLane`, answered by `WeightedRoundRobin::deactivate` and
+  variant: `UnknownLane`, answered by `Lane::new` and
   `DeficitRoundRobin::deactivate` for an index of `N` or more. A refused call
   changes nothing: the scheduler equals a clone taken before the call.
+  `WeightedRoundRobin::deactivate` takes a `Lane<N>` and never refuses.
 - **Mid-visit.** A lane holds something only in two ways. It is *mid-visit*
   when the cursor is on it and this visit has already given it something:
   WRR has served it at least one turn of the burst, DRR has paid it its
   quantum. A lane merely under the cursor, unserved and unpaid, is not being
   visited. In DRR a lane may also hold credit carried from earlier rounds.
-- **Honoured outcomes.** `deactivate` answers `Ok(Deactivation)`.
+- **Honoured outcomes.** `deactivate` answers a `Deactivation` (DRR inside
+  `Ok`).
   `Deactivated`: the lane gave up what it held. WRR: it was mid-visit, so its
   unused turns are gone and the cursor moved on. DRR: its credit is zero, and
   if it was mid-visit the visit ended and the cursor moved on; a lane that
@@ -163,8 +181,9 @@ assert_eq!(scheduler.select(&[true, true]), Some(1));
   nothing, for any `N`: the lane has no credit and is not mid-visit. So
   deactivating a lane that was never served or paid costs it neither its
   place in the round nor its next burst or quantum.
-- **Drains.** Every `select` and `earliest_deadline` answers `Option<usize>`;
-  `None` is "nothing to serve", never a refusal. What a `None` records is
+- **Drains.** Every `select` and `earliest_deadline` answers an `Option`
+  (WRR's carries the `Lane` and its head, the rest a `usize`); `None` is
+  "nothing to serve", never a refusal. What a `None` records is
   stated per scheduler above: `RoundRobin` nothing, WRR a reset burst, DRR
   cleared credit and an ended visit.
 - **Scopes and restarts.** Lanes are indices the caller chose. The crate

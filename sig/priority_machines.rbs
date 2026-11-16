@@ -7,7 +7,8 @@
 # RangeError otherwise. Every array argument is exactly an Array: a subclass
 # is TypeError. Messages name the argument. A frozen scheduler raises
 # FrozenError on `select` and `deactivate`, checked before the arguments. Refusals are symbols, one per
-# core `Refusal` variant, and a refused call changes nothing.
+# core `Refusal` variant, and a refused call changes nothing. Every scheduler
+# class is sealed: no allocator, and subclassing raises TypeError.
 module PriorityMachines
   VERSION: String
 

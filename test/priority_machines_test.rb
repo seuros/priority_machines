@@ -225,6 +225,8 @@ class PriorityMachinesTest < Minitest::Test
     # No instance exists without the core behind it.
     [PM::RoundRobin, PM::WeightedRoundRobin, PM::DeficitRoundRobin].each do |scheduler|
       assert_raises(TypeError) { scheduler.allocate }
+      error = assert_raises(TypeError) { Class.new(scheduler) }
+      assert_equal "#{scheduler} cannot be subclassed", error.message
     end
     first = PM::WeightedRoundRobin.new([2, 1])
     first.select([true, true])
