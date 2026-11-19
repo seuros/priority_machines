@@ -4,8 +4,8 @@ mod init;
 mod round_robin;
 mod scheduler;
 
-use magnus::{Error, RArray, Ruby, Value, prelude::*};
-use matryona_machines::ruby::{exact_array_with, instant, integer};
+use magnus::{Error, RArray, Ruby, Value};
+use matryona_machines::ruby::{exact_array_with, integer, optional_instant};
 use priority_machines::{Deactivation, Refusal};
 
 /// `value` as exactly an `Array` (no subclass), `TypeError` naming the
@@ -40,13 +40,7 @@ pub(crate) fn earliest_deadline(ruby: &Ruby, deadlines: Value) -> Result<Option<
     // answers as `now + span` (past `u64` included) orders here.
     let deadlines = array(ruby, deadlines, "deadlines")?
         .into_iter()
-        .map(|value| {
-            if value.is_nil() {
-                Ok(None)
-            } else {
-                instant(value, "deadlines").map(Some)
-            }
-        })
+        .map(|value| optional_instant(value, "deadlines"))
         .collect::<Result<Vec<_>, Error>>()?;
     Ok(priority_machines::earliest_deadline(&deadlines))
 }
